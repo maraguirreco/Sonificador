@@ -8,13 +8,14 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Everyday Motion Sound Studio", page_icon="🌊", layout="wide")
 
-st.title("🌊 Everyday Motion Sound Studio // Custom Layer Assign & Tuning")
-st.write("Detección dinámica de subcapas de movimiento. Asigna libremente instrumentos, tonos y volúmenes a cada capa.")
+st.title("🌊 Everyday Motion Sound Studio // Precision Tempo & Infinite Loop")
+st.write("Sonificación en bucle perfecto sincronizado con video. Controla la velocidad de reproducción y asigna instrumentos por capa.")
 
 if 'layers_events' not in st.session_state:
     st.session_state['layers_events'] = []
+if 'video_duration' not in st.session_state:
+    st.session_state['video_duration'] = 0.0
 
-# Escalas pentatónicas orgánicas y armónicas
 SCALES = {
     "Cálida / Orgánica": ['C2', 'G2', 'C3', 'E3', 'G3', 'A3', 'C4', 'E4', 'G4'],
     "Melancólica / Menor": ['A1', 'E2', 'A2', 'C3', 'E3', 'F3', 'A3', 'C4', 'E4'],
@@ -24,20 +25,26 @@ SCALES = {
 
 def extract_organic_motion_events(video_path, selected_scale):
     cap = cv2.VideoCapture(video_path)
+    
+    # Extraer FPS real del video
     fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps <= 0: fps = 30.0
+    if not fps or fps <= 0 or np.isnan(fps):
+        fps = 30.0
+        
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    video_duration = round(total_frames / fps, 2) if total_frames > 0 else 6.0
     
     ret, prev_frame = cap.read()
     if not ret:
-        return None, "No se pudo leer el archivo de video."
+        return None, 0.0, "No se pudo leer el archivo de video."
     
     prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
     height, width = prev_gray.shape
     
-    frame_count, max_frames = 0, 180 # Aprox 6 segundos
+    frame_count = 0
     raw_events_by_layer = {}
     
-    while cap.isOpened() and frame_count < max_frames:
+    while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
@@ -53,7 +60,6 @@ def extract_organic_motion_events(video_path, selected_scale):
             valid_contours = sorted(valid_contours, key=cv2.contourArea, reverse=True)
             timestamp = round(frame_count / fps, 2)
             
-            # Detectar capas dinámicamente (hasta 6 focos independientes)
             for idx, c in enumerate(valid_contours[:6]):
                 M = cv2.moments(c)
                 if M["m00"] != 0:
@@ -77,10 +83,9 @@ def extract_organic_motion_events(video_path, selected_scale):
     cap.release()
     
     if not raw_events_by_layer:
-        return [], "No se detectó suficiente movimiento en el video."
+        return [], 0.0, "No se detectó suficiente movimiento en el video."
 
     structured_layers = []
-    
     for layer_idx, events in raw_events_by_layer.items():
         if len(events) > 0:
             structured_layers.append({
@@ -88,9 +93,9 @@ def extract_organic_motion_events(video_path, selected_scale):
                 "events": events
             })
         
-    return structured_layers, None
+    return structured_layers, video_duration, None
 
-# --- INTERFAZ STREAMLIT ---
+# --- UI STREAMLIT ---
 col_vid, col_studio = st.columns([1, 1.3])
 
 video_b64 = ""
@@ -106,22 +111,24 @@ with col_vid:
         video_bytes = video_file.getvalue()
         video_b64 = base64.b64encode(video_bytes).decode('utf-8')
 
-        if st.button("✨ Escanear Subcapas de Movimiento"):
-            with st.spinner("Analizando movimiento y extrayendo subcapas independientes..."):
+        if st.button("✨ Escanear Subcapas y FPS del Video"):
+            with st.spinner("Analizando velocidad de fotogramas y marcas de tiempo..."):
                 tfile = tempfile.NamedTemporaryFile(delete=False)
                 tfile.write(video_bytes)
-                layers, error = extract_organic_motion_events(tfile.name, selected_scale)
+                layers, duration, error = extract_organic_motion_events(tfile.name, selected_scale)
                 if error:
                     st.error(error)
                 else:
                     st.session_state['layers_events'] = layers
-                    st.success(f"¡Éxito! Se detectaron {len(layers)} subcapas independientes de movimiento.")
+                    st.session_state['video_duration'] = duration
+                    st.success(f"¡Éxito! Detectadas {len(layers)} subcapas. Duración del Bucle: {duration}s")
 
 with col_studio:
-    st.subheader("🎛️ 2. Panel de Asignación e Instrumentación")
+    st.subheader("🎛️ 2. Reproducción en Bucle Sincronizado")
     
     if st.session_state['layers_events']:
         layers_json = json.dumps(st.session_state['layers_events'])
+        duration_val = st.session_state['video_duration']
 
         html_template = """
         <!DOCTYPE html>
@@ -175,10 +182,19 @@ with col_studio:
               </video>
             </div>
 
-            <!-- CONTROLES MASTER -->
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; background:#21262d; padding:8px 12px; border-radius:8px; margin-bottom:10px;">
+            <!-- CONTROLES MASTER & SPEED -->
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; background:#21262d; padding:8px 12px; border-radius:8px; margin-bottom:10px;">
               <div>
-                <label>🔊 VOLUMEN MASTER (dB)</label>
+                <label>⏱️ VELOCIDAD DE BUCLE</label>
+                <select id="speedSelect" onchange="updatePlaybackSpeed(this.value)">
+                  <option value="0.5">0.5x (Lento / Ambient)</option>
+                  <option value="1.0" selected>1.0x (Tempo Real Video)</option>
+                  <option value="1.25">1.25x (Más Rápido)</option>
+                  <option value="1.5">1.5x (Urbano / Upbeat)</option>
+                </select>
+              </div>
+              <div>
+                <label>🔊 MASTER VOL (dB)</label>
                 <input type="range" id="masterVol" min="-30" max="6" value="0" oninput="updateMasterVol(this.value)">
               </div>
               <div>
@@ -187,22 +203,25 @@ with col_studio:
               </div>
             </div>
 
-            <div style="font-size: 9px; font-weight: bold; color: #8b949e; margin-bottom: 6px;">ASIGNACIÓN DE INSTRUMENTOS Y TONOS POR SUBCAPA:</div>
+            <div style="font-size: 9px; font-weight: bold; color: #8b949e; margin-bottom: 6px;">ASIGNACIÓN POR SUBCAPA (DURACIÓN BUCLE: __DURATION__s):</div>
             <div id="tracksContainer"></div>
 
-            <button id="btnPlay" class="btn-action" onclick="togglePlay()">▶️ REPRODUCIR CON TUS ASIGNACIONES</button>
+            <button id="btnPlay" class="btn-action" onclick="togglePlay()">▶️ REPRODUCIR EN BUCLE CONTINUO</button>
             <button id="btnRec" class="btn-action" style="background:#8957e5; color:white;" onclick="toggleRecord()">● GRABAR ARCHIVO AUDIO</button>
-            <a id="btnDownload" class="btn-action btn-dl" style="display:none;" download="Custom_Motion_Track.wav">⬇️ DESCARGAR WAV</a>
+            <a id="btnDownload" class="btn-action btn-dl" style="display:none;" download="Loop_Motion_Track.wav">⬇️ DESCARGAR WAV</a>
 
           </div>
 
           <script>
             const layers = __LAYERS_JSON__;
+            const videoDuration = __DURATION__;
 
             let isPlaying = false, isRecording = false;
+            let playbackSpeed = 1.0;
             let synths = [], parts = [], trackStates = {};
             let layerRoles = {}, layerOctaves = {}, layerVolumes = {};
             let reverbNode, limiterNode, recorderNode;
+            let loopRepeatScheduleId = null;
 
             function shiftNote(noteStr, octaveOffset) {
               if (!noteStr || octaveOffset === 0) return noteStr;
@@ -331,6 +350,13 @@ with col_studio:
               if (reverbNode) reverbNode.wet.rampTo(parseFloat(val), 0.05);
             }
 
+            function updatePlaybackSpeed(val) {
+              playbackSpeed = parseFloat(val);
+              Tone.Transport.timeScale = playbackSpeed;
+              const vid = document.getElementById('syncVideo');
+              if (vid) vid.playbackRate = playbackSpeed;
+            }
+
             async function initAudioEngine() {
               if (recorderNode) return;
               await Tone.start();
@@ -356,34 +382,54 @@ with col_studio:
 
               if (!isPlaying) {
                 parts = [];
+                
+                // Configurar loop exacto a la duración del video
+                Tone.Transport.loop = true;
+                Tone.Transport.loopStart = 0;
+                Tone.Transport.loopEnd = videoDuration;
+
                 layers.forEach((layer, idx) => {
                   let formattedEvents = layer.events.map(e => ({ time: e.time, note: e.note }));
                   
                   let part = new Tone.Part((time, value) => {
                     let finalNote = shiftNote(value.note, layerOctaves[idx]);
                     synths[idx].triggerAttackRelease(finalNote, "8n", time);
-                  }, formattedEvents).start(0);
+                  }, formattedEvents);
+                  
+                  part.loop = true;
+                  part.loopEnd = videoDuration;
+                  part.start(0);
                   
                   parts.push(part);
                 });
 
                 if (vid) {
                   vid.currentTime = 0;
+                  vid.playbackRate = playbackSpeed;
                   vid.play();
                 }
+
+                // Sincronizar reinicio del video cada vez que el transporte de audio da la vuelta
+                loopRepeatScheduleId = Tone.Transport.scheduleRepeat((time) => {
+                  if (vid) {
+                    vid.currentTime = 0;
+                    vid.play();
+                  }
+                }, videoDuration, 0);
 
                 Tone.Transport.start();
                 isPlaying = true;
                 btn.className = 'btn-action playing';
-                btn.innerText = "⏸️ DETENER";
+                btn.innerText = "⏸️ DETENER BUCLE";
               } else {
                 Tone.Transport.stop();
+                if (loopRepeatScheduleId !== null) Tone.Transport.clear(loopRepeatScheduleId);
                 parts.forEach(p => p.dispose());
                 if (vid) vid.pause();
 
                 isPlaying = false;
                 btn.className = 'btn-action';
-                btn.innerText = "▶️ REPRODUCIR CON TUS ASIGNACIONES";
+                btn.innerText = "▶️ REPRODUCIR EN BUCLE CONTINUO";
               }
             }
 
@@ -410,8 +456,10 @@ with col_studio:
         </html>
         """
 
-        rendered_html = html_template.replace("__LAYERS_JSON__", layers_json).replace("__VIDEO_B64__", video_b64)
-        # Amplitud de marco ajustada a 1000px para que NADA quede recortado
+        rendered_html = html_template.replace("__LAYERS_JSON__", layers_json)\
+            .replace("__VIDEO_B64__", video_b64)\
+            .replace("__DURATION__", str(duration_val))
+            
         components.html(rendered_html, height=1000)
     else:
-        st.info("👈 Sube un video y presiona 'Escanear Subcapas de Movimiento' para comenzar a asignar tus timbres.")
+        st.info("👈 Sube un video y presiona 'Escanear Subcapas y FPS del Video' para comenzar.")
