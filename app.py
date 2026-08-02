@@ -4,17 +4,19 @@ import numpy as np
 import tempfile
 import json
 import base64
+import pandas as pd
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Motion Sound Studio Pro", page_icon="🌊", layout="wide")
+st.set_page_config(page_title="Everyday Motion Sound Studio", page_icon="🌊", layout="wide")
 
-st.title("🌊 Everyday Motion Sound Studio")
-st.write("Sonificación de movimiento en tiempo real con video sincronizado, mezcla en vivo y exportación WAV.")
+st.title("🌊 Everyday Motion Sound Studio // Real-Time Vision & Sonification")
+st.write("Detección de movimiento transparente: visualiza el rastreo de OpenCV, analiza la gráfica temporal y ajusta la sensibilidad.")
 
 if 'layers_data' not in st.session_state:
     st.session_state['layers_data'] = []
+if 'timeline_df' not in st.session_state:
+    st.session_state['timeline_df'] = None
 
-# Escalas según la atmósfera elegida
 MOOD_SCALES = {
     "Sad / Melancólico": ['C3', 'Eb3', 'F3', 'G3', 'Ab3', 'C4', 'Eb4', 'F4'],
     "Espacial / Ambient": ['C3', 'E3', 'F#3', 'G3', 'B3', 'C4', 'E4', 'F#4'],
@@ -22,17 +24,25 @@ MOOD_SCALES = {
     "Cinematic / Épico": ['C2', 'G2', 'C3', 'Eb3', 'G3', 'C4', 'D4', 'Eb4']
 }
 
-def process_video_to_sound_layers(video_path, selected_scale):
+LAYER_COLORS = [(0, 255, 0), (255, 0, 0), (0, 255, 255), (255, 0, 255)] # Verde, Azul, Amarillo, Magenta
+
+def process_and_draw_motion(video_path, selected_scale, thresh_val, min_area_val):
     cap = cv2.VideoCapture(video_path)
     ret, prev_frame = cap.read()
     if not ret:
-        return None, "No se pudo leer el archivo de video."
+        return None, None, None, "No se pudo leer el archivo de video."
     
     prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
-    height, _ = prev_gray.shape
+    height, width, _ = prev_frame.shape
+    
+    # Archivo temporal para guardar el video procesado con las marcas de OpenCV
+    out_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out_writer = cv2.VideoWriter(out_temp.name, fourcc, 20.0, (width, height))
     
     frame_count, max_frames = 0, 160
     raw_layers_data = []
+    timeline_records = []
     
     while cap.isOpened() and frame_count < max_frames:
         ret, frame = cap.read()
@@ -41,34 +51,52 @@ def process_video_to_sound_layers(video_path, selected_scale):
             
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         diff = cv2.absdiff(prev_gray, gray)
-        _, thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
+        _, thresh = cv2.threshold(diff, thresh_val, 255, cv2.THRESH_BINARY)
         
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        valid_contours = [c for c in contours if cv2.contourArea(c) > 30]
+        valid_contours = [c for c in contours if cv2.contourArea(c) > min_area_val]
+        
+        frame_notes = []
+        frame_record = {"Frame": frame_count}
         
         if valid_contours:
             valid_contours = sorted(valid_contours, key=cv2.contourArea, reverse=True)
-            frame_notes = []
             
             for idx, c in enumerate(valid_contours[:4]):
                 M = cv2.moments(c)
                 if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"])
                     cy = int(M["m01"] / M["m00"])
+                    
+                    # Dibujar recuadro y punto de rastreo en el marco del video
+                    color = LAYER_COLORS[idx % len(LAYER_COLORS)]
+                    x, y, w, h = cv2.boundingRect(c)
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+                    cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
+                    cv2.putText(frame, f"Capa {idx+1}", (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                    
+                    # Mapeo de nota
                     norm_y = 1.0 - (cy / height)
                     note_idx = int(norm_y * (len(selected_scale) - 1))
-                    frame_notes.append(selected_scale[note_idx])
+                    note_name = selected_scale[note_idx]
+                    frame_notes.append(note_name)
                     
-            raw_layers_data.append(frame_notes)
+                    frame_record[f"Capa {idx+1}"] = note_idx
+                    
+        out_writer.write(frame)
+        raw_layers_data.append(frame_notes)
+        timeline_records.append(frame_record)
 
         prev_gray = gray
         frame_count += 1
         
     cap.release()
+    out_writer.release()
     
-    if not raw_layers_data:
-        return [], "No se detectó suficiente movimiento en el video."
+    if not raw_layers_data or all(len(f) == 0 for f in raw_layers_data):
+        return None, None, None, "No se detectó movimiento con la sensibilidad actual. Intenta bajar el umbral o el área mínima."
 
-    max_detected_layers = max(len(f) for f in raw_layers_data)
+    max_detected_layers = max(len(f) for f in raw_layers_data if len(f) > 0)
     structured_layers = []
     
     roles = ["Bajo (Sub-Bass)", "Melodía Principal (Lead)", "Textura (Atmospheric Pad)", "Arpegiador / Percusión"]
@@ -86,7 +114,19 @@ def process_video_to_sound_layers(video_path, selected_scale):
             "notes": clean_notes
         })
         
-    return structured_layers, None
+    df_timeline = pd.DataFrame(timeline_records).set_index("Frame")
+    return structured_layers, out_temp.name, df_timeline, None
+
+# --- PANEL LATERAL DE SENSIBILIDAD ---
+st.sidebar.header("🎛️ Sensibilidad de Visión OpenCV")
+st.sidebar.write("Ajusta los parámetros para capturar movimientos muy pequeños o grandes:")
+thresh_sens = st.sidebar.slider("Sensibilidad de Umbral (Threshold)", 5, 100, 20, help="Valores más bajos capturan movimientos ultra suaves.")
+min_area_sens = st.sidebar.slider("Área Mínima de Objeto (Píxeles)", 10, 500, 30, help="Tamaño mínimo del objeto en movimiento a rastrear.")
+
+st.sidebar.markdown("---")
+st.sidebar.header("🎨 Sentimiento Musical")
+mood_selected = st.sidebar.selectbox("Atmósfera Musical (Mood):", list(MOOD_SCALES.keys()))
+scale_notes = MOOD_SCALES[mood_selected]
 
 # --- ESTRUCTURA DE LA PÁGINA ---
 col_vid, col_studio = st.columns([1, 1.3])
@@ -96,26 +136,35 @@ video_mime = "video/mp4"
 
 with col_vid:
     st.subheader("📹 1. Cargar Video Cotidiano")
-    mood_selected = st.selectbox("Atmósfera Musical (Mood):", list(MOOD_SCALES.keys()))
-    scale_notes = MOOD_SCALES[mood_selected]
-
     video_file = st.file_uploader("Sube un video (.mp4, .mov, .avi)", type=["mp4", "mov", "avi"])
+    
     if video_file:
-        st.video(video_file)
         video_bytes = video_file.getvalue()
-        video_b64 = base64.b64encode(video_bytes).decode('utf-8')
-        video_mime = video_file.type if video_file.type else "video/mp4"
-
-        if st.button("✨ Procesar Movimiento a Música"):
-            with st.spinner("Escaneando subcapas de movimiento..."):
+        if st.button("✨ Procesar y Mostrar Rastreo OpenCV"):
+            with st.spinner("Escaneando físicas y dibujando cajas de movimiento..."):
                 tfile = tempfile.NamedTemporaryFile(delete=False)
                 tfile.write(video_bytes)
-                layers, error = process_video_to_sound_layers(tfile.name, scale_notes)
+                
+                layers, processed_video_path, df_timeline, error = process_and_draw_motion(
+                    tfile.name, scale_notes, thresh_sens, min_area_sens
+                )
+                
                 if error:
                     st.error(error)
                 else:
                     st.session_state['layers_data'] = layers
-                    st.success(f"¡Éxito! Se crearon {len(layers)} capas independientes.")
+                    st.session_state['timeline_df'] = df_timeline
+                    
+                    # Cargar video procesado con rectángulos dibujaos
+                    with open(processed_video_path, 'rb') as f:
+                        proc_bytes = f.read()
+                        video_b64 = base64.b64encode(proc_bytes).decode('utf-8')
+                    st.success(f"¡Rastreadas {len(layers)} capas de movimiento con éxito!")
+
+        if st.session_state['timeline_df'] is not None:
+            st.markdown("### 📊 Comprobación: Altura de Notas por Frame")
+            st.caption("Esta gráfica demuestra qué notas disparó cada objeto detectado a lo largo del tiempo:")
+            st.line_chart(st.session_state['timeline_df'])
 
 with col_studio:
     st.subheader("🎛️ 2. Estudio de Sonificación Sincronizado")
@@ -133,18 +182,14 @@ with col_studio:
             * { box-sizing: border-box; }
             body { font-family: 'Space Mono', monospace; background: #0e1117; color: #fff; margin: 0; padding: 4px; }
             
-            .studio-box {
-              background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 16px;
-            }
+            .studio-box { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 16px; }
 
             .sync-video-container {
               width: 100%; border-radius: 8px; overflow: hidden; background: #000;
               margin-bottom: 12px; border: 2px solid #30363d;
             }
 
-            video {
-              width: 100%; max-height: 220px; object-fit: contain; display: block;
-            }
+            video { width: 100%; max-height: 220px; object-fit: contain; display: block; }
 
             .global-controls {
               display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
@@ -171,7 +216,6 @@ with col_studio:
               border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 12px; width: 100%; margin-top: 8px;
             }
             .btn-action.playing { background: #da3633; }
-            .btn-action.recording { background: #8957e5; }
             .btn-dl { background: #1f6beb; text-decoration: none; display: flex; align-items: center; justify-content: center; }
           </style>
         </head>
@@ -179,14 +223,12 @@ with col_studio:
 
           <div class="studio-card">
             
-            <!-- VIDEO SINCRONIZADO EN VIVO -->
             <div class="sync-video-container">
               <video id="syncVideo" loop muted playsinline>
-                <source src="data:__MIME__;base64,__VIDEO_B64__" type="__MIME__">
+                <source src="data:video/mp4;base64,__VIDEO_B64__" type="video/mp4">
               </video>
             </div>
 
-            <!-- MASTER & EFFECT CONTROLES (CONTINUOS EN VIVO) -->
             <div class="global-controls">
               <div>
                 <label>⏱️ TEMPO: <b id="lblBpm">100</b> BPM</label>
@@ -214,11 +256,9 @@ with col_studio:
               </div>
             </div>
 
-            <!-- CONTROLES POR PISTA -->
             <div style="font-size: 9px; font-weight: bold; color: #8b949e; margin-bottom: 6px;">SUBPISTAS DETECTADAS DEL VIDEO:</div>
             <div id="tracksContainer"></div>
 
-            <!-- BOTONES DE REPRODUCCIÓN Y EXPORTACIÓN -->
             <button id="btnPlay" class="btn-action" onclick="togglePlay()">▶️ REPRODUCIR VIDEO Y MÚSICA EN SYNC</button>
             <button id="btnRec" class="btn-action" style="background:#8957e5;" onclick="toggleRecord()">● GRABAR MEZCLA MASTER</button>
             <a id="btnDownload" class="btn-action btn-dl" style="display:none;" download="Everyday_Motion_Track.wav">⬇️ DESCARGAR ARCHIVO WAV</a>
@@ -232,7 +272,6 @@ with col_studio:
             let synths = [], sequences = [], trackStates = {};
             let reverbNode, delayNode, distNode, recorderNode;
 
-            // Renderizar UI por pista
             const container = document.getElementById('tracksContainer');
             layers.forEach((layer, idx) => {
               trackStates[idx] = true;
@@ -272,7 +311,6 @@ with col_studio:
               }
             }
 
-            // MODIFICACIONES CONTINUAS EN TIEMPO REAL (SIN INTERRUMPIR LA MÚSICA)
             function updateBpm(val) {
               document.getElementById('lblBpm').innerText = val;
               Tone.Transport.bpm.rampTo(parseFloat(val), 0.1);
@@ -301,7 +339,6 @@ with col_studio:
               });
             }
 
-            // AUDIO ENGINE INICIALIZACIÓN
             async function initAudioEngine() {
               if (recorderNode) return;
               await Tone.start();
@@ -402,10 +439,7 @@ with col_studio:
         </html>
         """
 
-        rendered_html = html_template.replace("__LAYERS_JSON__", layers_json)\
-            .replace("__VIDEO_B64__", video_b64)\
-            .replace("__MIME__", video_mime)
-
+        rendered_html = html_template.replace("__LAYERS_JSON__", layers_json).replace("__VIDEO_B64__", video_b64)
         components.html(rendered_html, height=780)
     else:
-        st.info("👈 Sube un video y presiona 'Procesar Movimiento a Música' para extraer tus pistas.")
+        st.info("👈 Sube un video y presiona 'Procesar y Mostrar Rastreo OpenCV' para extraer tus pistas.")
