@@ -5,15 +5,15 @@ import tempfile
 import json
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Motion Sound Studio", page_icon="🌊", layout="wide")
+st.set_page_config(page_title="Motion Sound Studio Pro", page_icon="🌊", layout="wide")
 
 st.title("🌊 Everyday Motion Sound Studio")
-st.write("Convierte movimientos del mundo real en pistas musicales, bajos, baterías y texturas listas para tu producción.")
+st.write("Extrae melodías del movimiento cotidiano, ajusta volúmenes y efectos en vivo sin detener la música, y graba tus pistas.")
 
 if 'layers_data' not in st.session_state:
     st.session_state['layers_data'] = []
 
-# --- CONFIGURACIÓN DE ESCALAS SEGÚN EL MOOD ---
+# Escalas según la atmósfera elegida
 MOOD_SCALES = {
     "Sad / Melancólico": ['C3', 'Eb3', 'F3', 'G3', 'Ab3', 'C4', 'Eb4', 'F4'],
     "Espacial / Ambient": ['C3', 'E3', 'F#3', 'G3', 'B3', 'C4', 'E4', 'F#4'],
@@ -49,7 +49,6 @@ def process_video_to_sound_layers(video_path, selected_scale):
             valid_contours = sorted(valid_contours, key=cv2.contourArea, reverse=True)
             frame_notes = []
             
-            # Detectar hasta 4 subcapas distintas de movimiento
             for idx, c in enumerate(valid_contours[:4]):
                 M = cv2.moments(c)
                 if M["m00"] != 0:
@@ -71,7 +70,7 @@ def process_video_to_sound_layers(video_path, selected_scale):
     max_detected_layers = max(len(f) for f in raw_layers_data)
     structured_layers = []
     
-    roles = ["Bajo (Sub Bass)", "Melodía Principal", "Textura / Pad", "Percusión / Arpegio"]
+    roles = ["Bajo (Sub-Bass)", "Melodía Principal (Lead)", "Textura (Atmospheric Pad)", "Arpegiador / Percusión"]
     
     for layer_idx in range(max_detected_layers):
         layer_notes = [frame[layer_idx] for frame in raw_layers_data if len(frame) > layer_idx]
@@ -88,29 +87,19 @@ def process_video_to_sound_layers(video_path, selected_scale):
         
     return structured_layers, None
 
-# --- PANEL DE CONTROL SIDEBAR ---
-st.sidebar.header("🎨 Ajustes de Sentimiento (Mood)")
-mood_selected = st.sidebar.selectbox("Selecciona la atmósfera musical:", list(MOOD_SCALES.keys()))
-scale_notes = MOOD_SCALES[mood_selected]
+# --- ESTRUCTURA DE LA PÁGINA ---
+col_vid, col_studio = st.columns([1, 1.3])
 
-st.sidebar.markdown("---")
-st.sidebar.header("🎛️ Controles del Sonido")
-bpm = st.sidebar.slider("⏱️ Tempo (BPM)", 50, 180, 100)
-reverb_val = st.sidebar.slider("🌌 Reverb (Espacio)", 0.0, 1.0, 0.4, 0.05)
-delay_val = st.sidebar.slider("📻 Eco / Delay", 0.0, 0.9, 0.2, 0.05)
-distortion_val = st.sidebar.slider("🔥 Distorsión / Carácter", 0.0, 1.0, 0.1, 0.05)
-attack_val = st.sidebar.slider("📈 Curva de Ataque (ADSR)", 0.01, 1.5, 0.05, 0.05)
+with col_vid:
+    st.subheader("📹 1. Cargar Video Cotidiano")
+    mood_selected = st.selectbox("Atmósfera Musical (Mood):", list(MOOD_SCALES.keys()))
+    scale_notes = MOOD_SCALES[mood_selected]
 
-# --- CARGA DE VIDEO ---
-col1, col2 = st.columns([1, 1.2])
-
-with col1:
-    st.subheader("📹 Video de Origen")
-    video_file = st.file_uploader("Sube un video cotidiano (.mp4, .mov, .avi)", type=["mp4", "mov", "avi"])
+    video_file = st.file_uploader("Sube un video (.mp4, .mov, .avi)", type=["mp4", "mov", "avi"])
     if video_file:
         st.video(video_file)
         if st.button("✨ Procesar Movimiento a Música"):
-            with st.spinner("Escaneando subcapas y cuantizando notas..."):
+            with st.spinner("Escaneando subcapas de movimiento..."):
                 tfile = tempfile.NamedTemporaryFile(delete=False)
                 tfile.write(video_file.read())
                 layers, error = process_video_to_sound_layers(tfile.name, scale_notes)
@@ -118,10 +107,11 @@ with col1:
                     st.error(error)
                 else:
                     st.session_state['layers_data'] = layers
-                    st.success(f"¡Éxito! Se generaron {len(layers)} capas musicales.")
+                    st.success(f"¡Éxito! Se crearon {len(layers)} capas independientes.")
 
-with col2:
-    st.subheader("🎧 Reproductor y Mezclador")
+with col_studio:
+    st.subheader("🎛️ 2. Estudio de Sonificación en Vivo")
+    
     if st.session_state['layers_data']:
         layers_json = json.dumps(st.session_state['layers_data'])
 
@@ -132,119 +122,192 @@ with col2:
           <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
           <style>
             @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
-            body { font-family: 'Space Mono', monospace; background: #0e1117; color: #fff; margin: 0; padding: 10px; }
+            * { box-sizing: border-box; }
+            body { font-family: 'Space Mono', monospace; background: #0e1117; color: #fff; margin: 0; padding: 4px; }
             
-            .studio-card {
+            .studio-box {
               background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 16px;
             }
 
-            .track-row {
-              display: flex; align-items: center; justify-content: space-between;
-              background: #21262d; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px;
+            .global-controls {
+              display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+              background: #21262d; border-radius: 8px; padding: 12px; margin-bottom: 14px;
             }
 
-            .btn-toggle {
-              background: #238636; color: white; border: none; padding: 6px 12px;
-              border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px;
+            .track-card {
+              background: #21262d; border-left: 4px solid #58a6ff; border-radius: 6px;
+              padding: 10px; margin-bottom: 8px; display: grid; grid-template-columns: 1.5fr 1fr 100px;
+              gap: 10px; align-items: center;
             }
-            .btn-toggle.muted { background: #3f444c; color: #8b949e; }
 
-            .btn-control {
-              background: #238636; color: white; border: none; padding: 12px 20px;
-              border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 13px; width: 100%; margin-top: 10px;
+            .btn-mute {
+              background: #238636; color: white; border: none; padding: 6px 10px;
+              border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: bold; width: 100%;
             }
-            .btn-control.stop { background: #da3633; }
+            .btn-mute.muted { background: #3f444c; color: #8b949e; }
+
+            label { font-size: 8px; color: #8b949e; font-weight: bold; display: block; margin-bottom: 2px; }
+            input[type=range] { width: 100%; accent-color: #58a6ff; }
+
+            .btn-action {
+              background: #238636; color: white; border: none; padding: 12px;
+              border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 12px; width: 100%; margin-top: 8px;
+            }
+            .btn-action.playing { background: #da3633; }
+            .btn-action.recording { background: #8957e5; }
             .btn-dl { background: #1f6beb; text-decoration: none; display: flex; align-items: center; justify-content: center; }
           </style>
         </head>
         <body>
 
           <div class="studio-card">
-            <div style="font-size:12px; color:#8b949e; margin-bottom:12px;">
-              ATMÓSFERA: <b style="color:#58a6ff;">__MOOD__</b> | TEMPO: <b>__BPM__ BPM</b>
+            
+            <!-- MASTER & EFFECT CONTROLS (CONTINUOS EN VIVO) -->
+            <div class="global-controls">
+              <div>
+                <label>⏱️ TEMPO: <b id="lblBpm">100</b> BPM</label>
+                <input type="range" id="bpm" min="50" max="180" value="100" oninput="updateBpm(this.value)">
+              </div>
+              <div>
+                <label>🔊 MASTER VOL: <b id="lblMasterVol">0</b> dB</label>
+                <input type="range" id="masterVol" min="-30" max="6" value="0" oninput="updateMasterVol(this.value)">
+              </div>
+              <div>
+                <label>🌌 REVERB (ESPACIO)</label>
+                <input type="range" id="reverbWet" min="0" max="0.9" step="0.05" value="0.3" oninput="updateReverb(this.value)">
+              </div>
+              <div>
+                <label>📻 DELAY / ECO</label>
+                <input type="range" id="delayWet" min="0" max="0.8" step="0.05" value="0.2" oninput="updateDelay(this.value)">
+              </div>
+              <div>
+                <label>🔥 DISTORSIÓN / CARÁCTER</label>
+                <input type="range" id="distVal" min="0" max="0.8" step="0.05" value="0.05" oninput="updateDistortion(this.value)">
+              </div>
+              <div>
+                <label>📈 ATAQUE ADSR</label>
+                <input type="range" id="attackVal" min="0.01" max="1.5" step="0.05" value="0.05" oninput="updateAttack(this.value)">
+              </div>
             </div>
 
-            <!-- PISTAS GENERADAS -->
+            <!-- CONTROLES POR PISTA -->
+            <div style="font-size: 9px; font-weight: bold; color: #8b949e; margin-bottom: 6px;">SUBPISTAS DETECTADAS DEL VIDEO:</div>
             <div id="tracksContainer"></div>
 
-            <!-- REPRODUCCIÓN Y GRABACIÓN -->
-            <button id="btnPlay" class="btn-control" onclick="togglePlay()">▶️ REPRODUCIR PISTAS DEL VIDEO</button>
-            <button id="btnRec" class="btn-control" style="background:#8957e5;" onclick="toggleRecord()">● GRABAR MEZCLA EN VIVO</button>
-            <a id="btnDownload" class="btn-control btn-dl" style="display:none;" download="Motion_Sonification.wav">⬇️ DESCARGAR ARCHIVO WAV</a>
+            <!-- BOTONES DE REPRODUCCIÓN Y EXPORTACIÓN -->
+            <button id="btnPlay" class="btn-action" onclick="togglePlay()">▶️ REPRODUCIR EN VIVO</button>
+            <button id="btnRec" class="btn-action" style="background:#8957e5;" onclick="toggleRecord()">● GRABAR MEZCLA MASTER</button>
+            <a id="btnDownload" class="btn-action btn-dl" style="display:none;" download="Everyday_Motion_Track.wav">⬇️ DESCARGAR ARCHIVO WAV</a>
+
           </div>
 
           <script>
             const layers = __LAYERS_JSON__;
-            const bpmVal = __BPM__;
-            const reverbVal = __REVERB__;
-            const delayVal = __DELAY__;
-            const distVal = __DISTORTION__;
-            const attackVal = __ATTACK__;
 
             let isPlaying = false, isRecording = false;
             let synths = [], sequences = [], trackStates = {};
             let reverbNode, delayNode, distNode, recorderNode;
 
-            // Renderizar pistas
+            // Renderizar UI por pista
             const container = document.getElementById('tracksContainer');
             layers.forEach((layer, idx) => {
               trackStates[idx] = true;
-              const row = document.createElement('div');
-              row.className = 'track-row';
-              row.innerHTML = `
+              const card = document.createElement('div');
+              card.className = 'track-card';
+              card.innerHTML = `
                 <div>
-                  <span style="font-size:11px; color:#58a6ff; font-weight:bold;">CAPA ${idx + 1}</span>
-                  <div style="font-size:12px; font-weight:bold;">${layer.role}</div>
+                  <span style="font-size:9px; color:#58a6ff; font-weight:bold;">CAPA ${idx + 1}</span>
+                  <div style="font-size:11px; font-weight:bold;">${layer.role}</div>
                 </div>
-                <button id="btnMute_${idx}" class="btn-toggle" onclick="toggleMute(${idx})">ACTIVO</button>
+                <div>
+                  <label>VOLUMEN</label>
+                  <input type="range" min="-30" max="6" value="0" oninput="updateTrackVol(${idx}, this.value)">
+                </div>
+                <button id="btnMute_${idx}" class="btn-mute" onclick="toggleMute(${idx})">ON</button>
               `;
-              container.appendChild(row);
+              container.appendChild(card);
             });
 
             function toggleMute(idx) {
               trackStates[idx] = !trackStates[idx];
               const btn = document.getElementById(`btnMute_${idx}`);
               if (trackStates[idx]) {
-                btn.className = 'btn-toggle';
-                btn.innerText = 'ACTIVO';
-                if (synths[idx]) synths[idx].volume.value = 0;
+                btn.className = 'btn-mute';
+                btn.innerText = 'ON';
+                if (synths[idx]) synths[idx].volume.rampTo(0, 0.05);
               } else {
-                btn.className = 'btn-toggle muted';
-                btn.innerText = 'SILENCIADO';
-                if (synths[idx]) synths[idx].volume.value = -Infinity;
+                btn.className = 'btn-mute muted';
+                btn.innerText = 'MUTE';
+                if (synths[idx]) synths[idx].volume.rampTo(-Infinity, 0.05);
               }
             }
 
+            function updateTrackVol(idx, dbVal) {
+              if (synths[idx] && trackStates[idx]) {
+                synths[idx].volume.rampTo(parseFloat(dbVal), 0.05);
+              }
+            }
+
+            // MODIFICACIONES CONTINUAS EN TIEMPO REAL (SIN INTERRUMPIR LA MÚSICA)
+            function updateBpm(val) {
+              document.getElementById('lblBpm').innerText = val;
+              Tone.Transport.bpm.rampTo(parseFloat(val), 0.1);
+            }
+
+            function updateMasterVol(val) {
+              document.getElementById('lblMasterVol').innerText = val;
+              Tone.Destination.volume.rampTo(parseFloat(val), 0.05);
+            }
+
+            function updateReverb(val) {
+              if (reverbNode) reverbNode.wet.rampTo(parseFloat(val), 0.05);
+            }
+
+            function updateDelay(val) {
+              if (delayNode) delayNode.wet.rampTo(parseFloat(val), 0.05);
+            }
+
+            function updateDistortion(val) {
+              if (distNode) distNode.distortion = parseFloat(val);
+            }
+
+            function updateAttack(val) {
+              synths.forEach(s => {
+                if (s.set) s.set({ envelope: { attack: parseFloat(val) } });
+              });
+            }
+
+            // AUDIO ENGINE INICIALIZACIÓN
             async function initAudioEngine() {
               if (recorderNode) return;
               await Tone.start();
 
               recorderNode = new Tone.Recorder();
-              distNode = new Tone.Distortion(distVal).connect(recorderNode).toDestination();
-              reverbNode = new Tone.Reverb({ decay: 3, wet: reverbVal }).connect(distNode);
+              distNode = new Tone.Distortion(0.05).connect(recorderNode).toDestination();
+              reverbNode = new Tone.Reverb({ decay: 3.5, wet: 0.3 }).connect(distNode);
               await reverbNode.generate();
 
-              delayNode = new Tone.FeedbackDelay("8n.", delayVal).connect(reverbNode);
+              delayNode = new Tone.FeedbackDelay("8n.", 0.2).connect(reverbNode);
 
               synths = [];
               layers.forEach((layer, idx) => {
                 let synth;
                 if (idx === 0) {
-                  // Bajo profundo
+                  // Bajo
                   synth = new Tone.MonoSynth({
                     oscillator: { type: 'sawtooth' },
                     envelope: { attack: 0.05, decay: 0.3, sustain: 0.8, release: 0.8 }
                   }).connect(reverbNode);
                 } else if (idx === 1) {
-                  // Lead / Melodía
+                  // Lead
                   synth = new Tone.PolySynth(Tone.Synth, {
-                    envelope: { attack: attackVal, release: 0.6 }
+                    envelope: { attack: 0.05, release: 0.6 }
                   }).connect(delayNode);
                 } else {
                   // Pad / Textura
                   synth = new Tone.PolySynth(Tone.Synth, {
                     oscillator: { type: 'sine' },
-                    envelope: { attack: attackVal * 2, release: 1.5 }
+                    envelope: { attack: 0.2, release: 1.5 }
                   }).connect(delayNode);
                 }
 
@@ -252,7 +315,6 @@ with col2:
                 synths.push(synth);
               });
 
-              Tone.Transport.bpm.value = bpmVal;
               Tone.Transport.loop = true;
               Tone.Transport.loopStart = 0;
               Tone.Transport.loopEnd = "4m";
@@ -274,14 +336,14 @@ with col2:
 
                 Tone.Transport.start();
                 isPlaying = true;
-                btn.className = 'btn-control stop';
+                btn.className = 'btn-action playing';
                 btn.innerText = "⏸️ DETENER";
               } else {
                 Tone.Transport.stop();
                 sequences.forEach(s => s.dispose());
                 isPlaying = false;
-                btn.className = 'btn-control';
-                btn.innerText = "▶️ REPRODUCIR PISTAS DEL VIDEO";
+                btn.className = 'btn-action';
+                btn.innerText = "▶️ REPRODUCIR EN VIVO";
               }
             }
 
@@ -293,12 +355,12 @@ with col2:
               if (!isRecording) {
                 recorderNode.start();
                 isRecording = true;
-                btn.innerText = "⏹️ DETENER Y GENERAR AUDIO";
+                btn.innerText = "⏹️ FINALIZAR GRABACIÓN MASTER";
                 dlBtn.style.display = "none";
               } else {
                 const recording = await recorderNode.stop();
                 isRecording = false;
-                btn.innerText = "● GRABAR MEZCLA EN VIVO";
+                btn.innerText = "● GRABAR MEZCLA MASTER";
                 dlBtn.href = URL.createObjectURL(recording);
                 dlBtn.style.display = "flex";
               }
@@ -308,14 +370,7 @@ with col2:
         </html>
         """
 
-        rendered_html = html_template.replace("__LAYERS_JSON__", layers_json)\
-            .replace("__MOOD__", mood_selected)\
-            .replace("__BPM__", str(bpm))\
-            .replace("__REVERB__", str(reverb_val))\
-            .replace("__DELAY__", str(delay_val))\
-            .replace("__DISTORTION__", str(distortion_val))\
-            .replace("__ATTACK__", str(attack_val))
-
-        components.html(rendered_html, height=520)
+        rendered_html = html_template.replace("__LAYERS_JSON__", layers_json)
+        components.html(rendered_html, height=560)
     else:
-        st.info("👈 Sube un video y presiona 'Procesar Movimiento a Música' para extraer tus pistas.")
+        st.info("👈 Sube un video y presiona 'Procesar Movimiento a Música' para generar tus pistas.")
