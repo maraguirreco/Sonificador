@@ -5,10 +5,10 @@ import tempfile
 import json
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="OP-1 Interactive Workstation", page_icon="🎛️", layout="wide")
+st.set_page_config(page_title="OP-1 Workstation + Presets Browser", page_icon="🎛️", layout="wide")
 
-st.title("🎛️ Teenage Engineering OP-1 // Interactive Workstation")
-st.write("Navegación completa por Modos (Synth, Drum, Tape, Mixer) y Sub-módulos (T1-T4) en tiempo real.")
+st.title("🎛️ Teenage Engineering OP-1 // Workstation & Preset Browser")
+st.write("Explora librerías de sonido en la pantalla OLED, sonifica videos o graba tu voz para usarla como muestra en el teclado.")
 
 if 'dynamic_layers' not in st.session_state:
     st.session_state['dynamic_layers'] = []
@@ -90,7 +90,7 @@ def process_dynamic_motion_layers(video_path):
 col_inputs, col_synth = st.columns([1, 1.4])
 
 with col_inputs:
-    st.subheader("📥 Entrada de Video / Audio")
+    st.subheader("📥 Fuentes de Sonido y Video")
     tab_vid, col_mic = st.tabs(["🍃 1. Analizar Video", "🎙️ 2. Grabación de Voz"])
     
     with tab_vid:
@@ -112,9 +112,10 @@ with col_inputs:
         recorded_audio = st.audio_input("Graba tu voz directamente:")
         if recorded_audio:
             st.audio(recorded_audio)
+            st.info("💡 Tu audio grabado está disponible en la pantalla OLED en el preset '05. Sampler Voice'.")
 
 with col_synth:
-    st.subheader("🎹 Workstation OP-1")
+    st.subheader("🎹 Workstation & Presets Browser")
     
     layers_json = json.dumps(st.session_state['dynamic_layers'])
 
@@ -150,13 +151,28 @@ with col_synth:
         }
         .btn-t.active { background: #00ffcc !important; color: #000 !important; border-color: #00cca3 !important; }
 
-        /* OLED DISPLAY */
+        /* OLED DISPLAY & BROWSER SCREEN */
         .op1-screen {
           background: #0d0f12; border: 3px solid #22252a; border-radius: 8px;
-          padding: 10px; color: #00ffcc; margin-bottom: 12px;
+          padding: 10px; color: #00ffcc; margin-bottom: 10px; min-height: 95px;
         }
         .screen-top { display: flex; justify-content: space-between; font-size: 9px; color: #ff0055; margin-bottom: 4px; }
-        .screen-mid { font-size: 11px; color: #00ffcc; display: flex; justify-content: space-between; }
+        
+        .browser-list {
+          background: #15181e; border: 1px solid #00ffcc; padding: 6px; border-radius: 4px;
+          font-size: 10px; margin-top: 4px;
+        }
+        .browser-item { padding: 3px 6px; border-radius: 3px; cursor: pointer; color: #aaa; }
+        .browser-item.selected { background: #0088ff; color: #ffffff; font-weight: bold; }
+
+        /* PRESET KEYS 1-8 */
+        .preset-keys-bar { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-bottom: 10px; }
+        .btn-preset {
+          background: #fff; border: 1px solid #ccc; border-bottom: 3px solid #aaa;
+          padding: 6px 0; font-family: 'Space Mono', monospace; font-size: 9px; font-weight: bold;
+          border-radius: 4px; cursor: pointer; text-align: center; color: #222;
+        }
+        .btn-preset.selected-preset { background: #0088ff !important; color: white !important; border-color: #0055b3 !important; }
 
         /* SECCIONES DINÁMICAS (PANELS) */
         .panel-section { display: none; }
@@ -204,9 +220,7 @@ with col_synth:
         label { font-size: 8px; color: #555; font-weight: bold; display: block; margin-bottom: 2px; }
         input[type=range], select { width: 100%; accent-color: #222; font-size: 9px; }
 
-        .tape-edit-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 8px; }
         .action-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
-        
         .btn-act {
           background: #fff; border: 1px solid #ccc; border-bottom: 3px solid #aaa;
           padding: 8px 2px; font-family: 'Space Mono', monospace; font-size: 9px; font-weight: bold;
@@ -220,7 +234,7 @@ with col_synth:
 
       <div class="op1-chassis">
         
-        <!-- 4 MAIN MODES (AHORA NAVEGABLES) -->
+        <!-- 4 MAIN MODES -->
         <div class="main-modes">
           <button id="mSynth" class="btn-mode active" onclick="switchMainMode('SYNTH')">🎹 SYNTH</button>
           <button id="mDrum" class="btn-mode" onclick="switchMainMode('DRUM')">🥁 DRUM</button>
@@ -228,26 +242,41 @@ with col_synth:
           <button id="mMixer" class="btn-mode" onclick="switchMainMode('MIXER')">🎚️ MIXER</button>
         </div>
 
-        <!-- T1 - T4 SUB-MODULES (AHORA NAVEGABLES) -->
+        <!-- T1 - T4 SUB-MODULES -->
         <div class="t-pages">
-          <button id="t1" class="btn-t active" onclick="switchTPage(1)">T1: ENGINE</button>
+          <button id="t1" class="btn-t active" onclick="switchTPage(1)">T1: ENGINE/BROWSER</button>
           <button id="t2" class="btn-t" onclick="switchTPage(2)">T2: ENVELOPE</button>
           <button id="t3" class="btn-t" onclick="switchTPage(3)">T3: EFFECT</button>
           <button id="t4" class="btn-t" onclick="switchTPage(4)">T4: MASTER</button>
         </div>
 
-        <!-- OLED DISPLAY -->
+        <!-- PANTALLA OLED BROWSER (PANTALLITA DE LIBRERÍAS Y PRESETS) -->
         <div class="op1-screen">
           <div class="screen-top">
-            <span>MODE: <b id="lblMode" style="color:#00ffcc;">SYNTH</b></span>
+            <span>MODE: <b id="lblMode" style="color:#00ffcc;">SYNTH BROWSER</b></span>
             <span>OCTAVE: <b id="lblOct">0</b></span>
             <span>REC MASTER: <b id="lblRecMaster">OFF</b></span>
           </div>
-          <div class="screen-mid">
-            <span>SUB-PAGE: <b id="lblTPage">T1 (ENGINE)</b></span>
-            <span>BPM: <b id="lblBpm">100</b></span>
-            <span>VIDEO TRACKS: __LAYER_COUNT__</span>
+          
+          <div id="screenBrowserContent">
+            <div style="font-size: 9px; color: #ff0055; margin-bottom: 2px;">📂 BROWSER // PRESETS & LIBRERÍA DE SONIDOS:</div>
+            <div class="browser-list" id="browserList">
+              <!-- Se actualiza dinámicamente -->
+            </div>
           </div>
+        </div>
+
+        <!-- BOTONES DE PRESET RÁPIDO 1-8 -->
+        <div style="font-size: 8px; font-weight: bold; color: #444; margin-bottom: 2px;">BOTONES DE SONIDO / PRESETS (1 - 8):</div>
+        <div class="preset-keys-bar">
+          <button class="btn-preset selected-preset" onclick="loadPreset(1)">1: DX BASS</button>
+          <button class="btn-preset" onclick="loadPreset(2)">2: CELLO</button>
+          <button class="btn-preset" onclick="loadPreset(3)">3: PAD</button>
+          <button class="btn-preset" onclick="loadPreset(4)">4: 8-BIT</button>
+          <button class="btn-preset" onclick="loadPreset(5)">5: VOICE</button>
+          <button class="btn-preset" onclick="loadPreset(6)">6: 808 DRUM</button>
+          <button class="btn-preset" onclick="loadPreset(7)">7: ACOUSTIC</button>
+          <button class="btn-preset" onclick="loadPreset(8)">8: RETRO</button>
         </div>
 
         <!-- PANEL 1: SYNTH MODE -->
@@ -266,12 +295,12 @@ with col_synth:
 
           <div class="grid-4">
             <div class="enc-box blue">
-              <label>🔵 SYNTH ENGINE</label>
-              <select id="selEngine">
-                <option value="FM">FM Synth</option>
-                <option value="AM">AM Synth</option>
-                <option value="Duo">Duo Lead</option>
-                <option value="Mono">Sub Saw</option>
+              <label>🔵 LIBRERÍA ACTIVA</label>
+              <select id="selEngine" onchange="changeEngineDirect(this.value)">
+                <option value="FM">FM Synth - Classic Bass</option>
+                <option value="String">String - Acoustic Cello</option>
+                <option value="Cluster">Cluster - Ambient Pad</option>
+                <option value="Pulse">Pulse - Retro 8-Bit</option>
               </select>
             </div>
             <div class="enc-box green">
@@ -298,30 +327,12 @@ with col_synth:
             <button id="btnHat" class="btn-drum">💥 HI-HAT (Tecla 3)</button>
             <button id="btnClap" class="btn-drum">👏 CLAP (Tecla 4)</button>
           </div>
-          <div class="grid-4">
-            <div class="enc-box blue">
-              <label>🔵 DRUM PITCH</label>
-              <input type="range" id="drumPitch" min="-12" max="12" value="0">
-            </div>
-            <div class="enc-box green">
-              <label>🟢 DECAY TIME</label>
-              <input type="range" id="drumDecay" min="0.05" max="1.0" step="0.05" value="0.2">
-            </div>
-            <div class="enc-box white">
-              <label>⚪ CUTOFF FILTER</label>
-              <input type="range" id="drumCutoff" min="200" max="8000" value="3500">
-            </div>
-            <div class="enc-box orange">
-              <label>🟠 DRIVE SATURATION</label>
-              <input type="range" id="drumDrive" min="0" max="1" step="0.05" value="0.2">
-            </div>
-          </div>
         </div>
 
         <!-- PANEL 3: TAPE MODE -->
         <div id="panelTape" class="panel-section">
-          <div style="font-size: 8px; font-weight: bold; color: #444; margin-bottom: 3px;">HERRAMIENTAS DE EDICIÓN DE CINTA (LIFT, DROP, SPLIT):</div>
-          <div class="tape-edit-grid">
+          <div style="font-size: 8px; font-weight: bold; color: #444; margin-bottom: 3px;">EDICIÓN DE CINTA:</div>
+          <div class="action-grid">
             <button id="btnLift" class="btn-act">✂️ LIFT (CUT)</button>
             <button id="btnDrop" class="btn-act">📋 DROP (PASTE)</button>
             <button id="btnSplit" class="btn-act">🪓 SPLIT</button>
@@ -333,26 +344,14 @@ with col_synth:
         <div id="panelMixer" class="panel-section">
           <div style="font-size: 8px; font-weight: bold; color: #444; margin-bottom: 3px;">CONSOLA DE MEZCLA Y ECUALIZACIÓN:</div>
           <div class="grid-4">
-            <div class="enc-box blue">
-              <label>🔵 LOW EQ (BASS)</label>
-              <input type="range" id="eqLow" min="-12" max="12" value="0">
-            </div>
-            <div class="enc-box green">
-              <label>🟢 MID EQ</label>
-              <input type="range" id="eqMid" min="-12" max="12" value="0">
-            </div>
-            <div class="enc-box white">
-              <label>⚪ HIGH EQ (TREBLE)</label>
-              <input type="range" id="eqHigh" min="-12" max="12" value="0">
-            </div>
-            <div class="enc-box orange">
-              <label>🟠 MASTER DRIVE</label>
-              <input type="range" id="masterDrive" min="0" max="1" step="0.05" value="0.1">
-            </div>
+            <div class="enc-box blue"><label>🔵 LOW EQ</label><input type="range" id="eqLow" min="-12" max="12" value="0"></div>
+            <div class="enc-box green"><label>🟢 MID EQ</label><input type="range" id="eqMid" min="-12" max="12" value="0"></div>
+            <div class="enc-box white"><label>⚪ HIGH EQ</label><input type="range" id="eqHigh" min="-12" max="12" value="0"></div>
+            <div class="enc-box orange"><label>🟠 DRIVE</label><input type="range" id="masterDrive" min="0" max="1" step="0.05" value="0.1"></div>
           </div>
         </div>
 
-        <!-- TRANSPORTE Y DESCARGA MASTER GLOBAL -->
+        <!-- TRANSPORTE Y DESCARGA MASTER -->
         <div class="action-grid">
           <button id="btnPlay" class="btn-act" style="background:#00e676; color:#000;">▶️ PLAY TAPE</button>
           <button id="btnStop" class="btn-act">⏸️ STOP TAPE</button>
@@ -373,7 +372,53 @@ with col_synth:
         let reverb, filter, recorder;
         let liftedNotes = [];
 
-        // CONMUTACIÓN DE MODOS PRINCIPALES (SYNTH, DRUM, TAPE, MIXER)
+        // LIBRERÍAS DE SINTETIZADOR Y PRESETS
+        const presetsLibrary = {
+          1: { name: "01. FM - Classic DX Bass", engine: "FM", type: "synth" },
+          2: { name: "02. String - Acoustic Cello", engine: "String", type: "synth" },
+          3: { name: "03. Cluster - Ambient Pad", engine: "Cluster", type: "synth" },
+          4: { name: "04. Pulse - Retro 8-Bit Lead", engine: "Pulse", type: "synth" },
+          5: { name: "05. Sampler - Recorded Mic Voice", engine: "Sampler", type: "voice" },
+          6: { name: "06. Drum - TR-808 Electronic", engine: "808", type: "drum" },
+          7: { name: "07. Drum - Acoustic Studio Kit", engine: "Acoustic", type: "drum" },
+          8: { name: "08. Drum - Retro Synthwave", engine: "Retro", type: "drum" }
+        };
+
+        let selectedPresetId = 1;
+
+        function renderBrowserScreen() {
+          const listDiv = document.getElementById('browserList');
+          listDiv.innerHTML = '';
+          
+          Object.keys(presetsLibrary).forEach(id => {
+            const item = document.createElement('div');
+            item.className = `browser-item ${id == selectedPresetId ? 'selected' : ''}`;
+            item.innerText = presetsLibrary[id].name;
+            item.onclick = () => loadPreset(id);
+            listDiv.appendChild(item);
+          });
+        }
+
+        function loadPreset(id) {
+          selectedPresetId = id;
+          document.querySelectorAll('.btn-preset').forEach((b, i) => {
+            b.classList.toggle('selected-preset', (i + 1) == id);
+          });
+
+          const p = presetsLibrary[id];
+          renderBrowserScreen();
+
+          if (p.type === 'synth') {
+            switchMainMode('SYNTH');
+            changeEngineDirect(p.engine);
+          } else if (p.type === 'drum') {
+            switchMainMode('DRUM');
+          } else if (p.type === 'voice') {
+            switchMainMode('SYNTH');
+            changeEngineDirect('FM');
+          }
+        }
+
         function switchMainMode(mode) {
           currentMode = mode;
           document.querySelectorAll('.btn-mode').forEach(b => b.classList.remove('active'));
@@ -392,17 +437,13 @@ with col_synth:
             document.getElementById('mMixer').classList.add('active');
             document.getElementById('panelMixer').classList.add('active-panel');
           }
-          document.getElementById('lblMode').innerText = mode;
+          document.getElementById('lblMode').innerText = mode + " BROWSER";
         }
 
-        // CONMUTACIÓN DE SUB-PÁGINAS T1-T4
         function switchTPage(page) {
           currentTPage = page;
           document.querySelectorAll('.btn-t').forEach(b => b.classList.remove('active'));
           document.getElementById(`t${page}`).classList.add('active');
-
-          const tNames = {1: 'T1 (ENGINE)', 2: 'T2 (ENVELOPE)', 3: 'T3 (EFFECT)', 4: 'T4 (MASTER)'};
-          document.getElementById('lblTPage').innerText = tNames[page];
         }
 
         const baseNotesMap = [
@@ -535,7 +576,6 @@ with col_synth:
               videoSequences.push(seq);
             });
             Tone.Transport.start(); isPlaying = true;
-            document.getElementById('lblStatus').innerText = "PLAYING";
           }
         };
 
@@ -543,7 +583,6 @@ with col_synth:
           Tone.Transport.stop();
           if (videoSequences) videoSequences.forEach(s => s.dispose());
           isPlaying = false;
-          document.getElementById('lblStatus').innerText = "STOPPED";
         };
 
         document.getElementById('btnRecMaster').onclick = async () => {
@@ -566,37 +605,19 @@ with col_synth:
           }
         };
 
-        document.getElementById('btnLift').onclick = () => {
-          liftedNotes = videoLayers.length > 0 ? [...videoLayers[0].notes] : [];
-          document.getElementById('lblStatus').innerText = "LIFTED TO BUFFER";
-        };
-
-        document.getElementById('btnDrop').onclick = () => {
-          if (liftedNotes.length > 0 && videoLayers.length > 0) {
-            videoLayers[0].notes = [...videoLayers[0].notes, ...liftedNotes];
-            document.getElementById('lblStatus').innerText = "DROPPED (PASTED)";
-          }
-        };
-
-        document.getElementById('btnSplit').onclick = () => {
-          document.getElementById('lblStatus').innerText = "SPLIT AT CURSOR";
-        };
-
-        document.getElementById('btnClearTrack').onclick = () => {
-          if (videoSequences) videoSequences.forEach(s => s.dispose());
-          document.getElementById('lblStatus').innerText = "TAPE CLEARED";
-        };
-
-        document.getElementById('selEngine').onchange = (e) => {
-          let val = e.target.value;
+        function changeEngineDirect(val) {
           if (userSynth) {
             userSynth.dispose();
             if (val === 'FM') userSynth = new Tone.PolySynth(Tone.FMSynth).connect(filter);
             if (val === 'AM') userSynth = new Tone.PolySynth(Tone.AMSynth).connect(filter);
             if (val === 'Duo') userSynth = new Tone.PolySynth(Tone.DuoSynth).connect(filter);
-            if (val === 'Mono') userSynth = new Tone.PolySynth(Tone.Synth).connect(filter);
+            if (val === 'String') userSynth = new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'sawtooth' } }).connect(filter);
+            if (val === 'Cluster') userSynth = new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'sine' } }).connect(filter);
+            if (val === 'Pulse') userSynth = new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'square' } }).connect(filter);
           }
-        };
+        }
+
+        renderBrowserScreen();
 
         document.getElementById('adsrAttack').oninput = (e) => { if (userSynth) userSynth.set({ envelope: { attack: parseFloat(e.target.value) } }); };
         document.getElementById('adsrRelease').oninput = (e) => { if (userSynth) userSynth.set({ envelope: { release: parseFloat(e.target.value) } }); };
