@@ -5,19 +5,18 @@ import tempfile
 import json
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Sonificador en Tiempo Real", page_icon="🎛️", layout="wide")
+st.set_page_config(page_title="Sonificador Multicapa", page_icon="🎼", layout="wide")
 
-st.title("🍃 Sonificador de Movimiento + Sintetizador en Tiempo Real")
-st.write("Sube un video para extraer su melodía y modula el sonido en tiempo real mientras el bucle está sonando.")
+st.title("🍃 Sonificador de Movimiento Multicapa (Polifónico)")
+st.write("Detecta múltiples capas de movimiento simultáneas (fondo y frente) y las convierte en arreglos polifónicos en tiempo real.")
 
-# Inicializar estado para guardar la melodía analizada
-if 'melody_notes' not in st.session_state:
-    st.session_state['melody_notes'] = []
+if 'layers_data' not in st.session_state:
+    st.session_state['layers_data'] = {"layer1": [], "layer2": []}
 
-# Escala Pentatónica Mayor de Do
-PENTATONIC_SCALE = ['C4', 'D4', 'E4', 'G4', 'A4', 'C5', 'D5', 'E5', 'G5', 'A5', 'C6']
+BASS_SCALE = ['C2', 'G2', 'A2', 'F2', 'C3', 'G3']
+LEAD_SCALE = ['C4', 'D4', 'E4', 'G4', 'A4', 'C5', 'D5', 'E5', 'G5', 'A5']
 
-def process_video_motion(video_path):
+def process_video_motion_layers(video_path):
     cap = cv2.VideoCapture(video_path)
     ret, prev_frame = cap.read()
     if not ret:
@@ -26,9 +25,11 @@ def process_video_motion(video_path):
     prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
     height, _ = prev_gray.shape
     
-    detected_events = []
+    layer1_notes = [] # Capa de Bajo / Armonía (Movimiento grande)
+    layer2_notes = [] # Capa de Melodía (Movimiento pequeño)
+    
     frame_count = 0
-    max_frames = 150  # Analiza aprox. 5 segundos
+    max_frames = 150
     
     while cap.isOpened() and frame_count < max_frames:
         ret, frame = cap.read()
@@ -38,195 +39,215 @@ def process_video_motion(video_path):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         diff = cv2.absdiff(prev_gray, gray)
         _, thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
-        moving_pixels = np.where(thresh > 0)
         
-        if len(moving_pixels[0]) > 40:
-            avg_y = np.mean(moving_pixels[0])
-            norm_y = 1.0 - (avg_y / height)
-            scale_idx = int(norm_y * (len(PENTATONIC_SCALE) - 1))
-            detected_events.append(PENTATONIC_SCALE[scale_idx])
+        # Encontrar contornos/grupos de movimiento independientes
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Filtrar contornos significativos
+        valid_contours = [c for c in contours if cv2.contourArea(c) > 50]
+        
+        if valid_contours:
+            # Ordenar por tamaño de área (mayor a menor)
+            valid_contours = sorted(valid_contours, key=cv2.contourArea, reverse=True)
             
+            # CAPA 1: El movimiento más grande (Bajo / Fondo)
+            c1 = valid_contours[0]
+            M1 = cv2.moments(c1)
+            if M1["m00"] != 0:
+                cy1 = int(M1["m01"] / M1["m00"])
+                norm_y1 = 1.0 - (cy1 / height)
+                idx1 = int(norm_y1 * (len(BASS_SCALE) - 1))
+                layer1_notes.append(BASS_SCALE[idx1])
+            
+            # CAPA 2: El segundo movimiento detectado (Melodía / Detalle)
+            if len(valid_contours) > 1:
+                c2 = valid_contours[1]
+                M2 = cv2.moments(c2)
+                if M2["m00"] != 0:
+                    cy2 = int(M2["m01"] / M2["m00"])
+                    norm_y2 = 1.0 - (cy2 / height)
+                    idx2 = int(norm_y2 * (len(LEAD_SCALE) - 1))
+                    layer2_notes.append(LEAD_SCALE[idx2])
+            else:
+                # Si no hay segunda capa, se genera una variación melódica armónica
+                layer2_notes.append(LEAD_SCALE[0])
+
         prev_gray = gray
         frame_count += 1
         
     cap.release()
-    return detected_events, None
+    return {"layer1": layer1_notes, "layer2": layer2_notes}, None
 
 col_vid, col_synth = st.columns([1, 1.2])
 
 with col_vid:
-    video_file = st.file_uploader("Sube un video corto (.mp4, .mov, .avi)", type=["mp4", "mov", "avi"])
+    video_file = st.file_uploader("Sube un video (.mp4, .mov, .avi)", type=["mp4", "mov", "avi"])
     if video_file:
         st.video(video_file)
-        if st.button("🔍 Extraer Melodía del Video"):
-            with st.spinner("Analizando física del movimiento..."):
+        if st.button("🔍 Escanear Subcapas de Movimiento"):
+            with st.spinner("Analizando capas independientes con OpenCV..."):
                 tfile = tempfile.NamedTemporaryFile(delete=False)
                 tfile.write(video_file.read())
                 
-                notes, error = process_video_motion(tfile.name)
+                layers, error = process_video_motion_layers(tfile.name)
                 if error:
                     st.error(error)
-                elif notes:
-                    # Limpiar repeticiones consecutivas
-                    melody = [notes[0]]
-                    for n in notes[1:]:
-                        if n != melody[-1]:
-                            melody.append(n)
-                    st.session_state['melody_notes'] = melody
-                    st.success("¡Melodía extraída correctamente!")
+                else:
+                    # Filtrar repeticiones
+                    l1 = [layers['layer1'][0]] if layers['layer1'] else ['C2']
+                    for n in layers['layer1'][1:]:
+                        if n != l1[-1]: l1.append(n)
+                        
+                    l2 = [layers['layer2'][0]] if layers['layer2'] else ['C4']
+                    for n in layers['layer2'][1:]:
+                        if n != l2[-1]: l2.append(n)
+
+                    st.session_state['layers_data'] = {"layer1": l1, "layer2": l2}
+                    st.success("¡Subcapas extraídas exitosamente!")
 
 with col_synth:
-    if st.session_state['melody_notes']:
-        st.markdown("### 🎛️ Sintetizador Interactivo")
+    if st.session_state['layers_data']['layer1']:
+        st.markdown("### 🎛️ Mezclador Multicapa en Tiempo Real")
         
-        notes_js = json.dumps(st.session_state['melody_notes'])
-        first_note_base = st.session_state['melody_notes'][0][0]
+        l1_json = json.dumps(st.session_state['layers_data']['layer1'])
+        l2_json = json.dumps(st.session_state['layers_data']['layer2'])
         
-        st.info(f"**Notas extraídas:** {', '.join(st.session_state['melody_notes'])}")
-        st.success(f"**Progresión armónica sugerida:** `{first_note_base}maj7` ➔ `{first_note_base}/F` ➔ `G6` ➔ `{first_note_base}`")
+        st.info(f"**Capa 1 (Bajo / Fondo):** {', '.join(st.session_state['layers_data']['layer1'][:6])}...")
+        st.success(f"**Capa 2 (Melodía / Detalle):** {', '.join(st.session_state['layers_data']['layer2'][:8])}...")
 
-        # HTML + JS Web Audio API Component (Tone.js)
         html_code = f"""
         <!DOCTYPE html>
         <html>
         <head>
           <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
           <style>
-            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0e1117; color: #ffffff; margin: 0; padding: 10px; }}
+            body {{ font-family: system-ui, sans-serif; background: #0e1117; color: #fff; margin: 0; padding: 10px; }}
             .card {{ background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; }}
-            .btn-play {{ background: #ff4b4b; color: white; border: none; padding: 14px 20px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%; margin-bottom: 20px; transition: 0.2s; }}
-            .btn-play:hover {{ background: #e03e3e; }}
-            .control-group {{ margin-bottom: 15px; }}
-            label {{ display: block; font-size: 13px; color: #8b949e; margin-bottom: 6px; font-weight: 600; }}
-            input[type=range], select {{ width: 100%; background: #0d1117; color: #fff; border: 1px solid #30363d; padding: 10px; border-radius: 6px; box-sizing: border-box; }}
+            .btn-play {{ background: #00c853; color: white; border: none; padding: 14px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%; margin-bottom: 20px; }}
             .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }}
-            .val-badge {{ float: right; color: #58a6ff; font-weight: bold; }}
+            label {{ display: block; font-size: 12px; color: #8b949e; margin-bottom: 4px; font-weight: bold; }}
+            input[type=range] {{ width: 100%; background: #0d1117; }}
+            .layer-box {{ background: #21262d; padding: 12px; border-radius: 8px; margin-bottom: 15px; }}
           </style>
         </head>
         <body>
           <div class="card">
-            <button id="playBtn" class="btn-play">▶️ Iniciar Bucle en Tiempo Real</button>
+            <button id="playBtn" class="btn-play">▶️ Reproducir Mezcla Polifónica</button>
+            
+            <div class="layer-box">
+              <span style="color:#58a6ff; font-weight:bold;">🎹 Capa 1: Bajo / Acompañamiento</span>
+              <div class="grid" style="margin-top:10px;">
+                <div>
+                  <label>Volumen Bajo</label>
+                  <input type="range" id="volL1" min="-30" max="6" value="0">
+                </div>
+                <div>
+                  <label>Filtro / Calidez</label>
+                  <input type="range" id="filterL1" min="100" max="2000" value="600">
+                </div>
+              </div>
+            </div>
+
+            <div class="layer-box">
+              <span style="color:#2ea043; font-weight:bold;">🎵 Capa 2: Melodía Principal</span>
+              <div class="grid" style="margin-top:10px;">
+                <div>
+                  <label>Volumen Melodía</label>
+                  <input type="range" id="volL2" min="-30" max="6" value="-2">
+                </div>
+                <div>
+                  <label>Reverb Espacial</label>
+                  <input type="range" id="reverbL2" min="0" max="0.9" step="0.05" value="0.4">
+                </div>
+              </div>
+            </div>
+
             <div class="grid">
-              <div class="control-group">
-                <label>🎹 Timbre / Instrumento</label>
-                <select id="synthType">
-                  <option value="Synth">Marimba / Sintetizador</option>
-                  <option value="AMSynth">Folk / Órgano Cálido</option>
-                  <option value="FMSynth">Cristalino / Metálico</option>
-                  <option value="DuoSynth">Lead / Cósmico</option>
-                </select>
-              </div>
-              <div class="control-group">
-                <label>⏱️ Tempo (BPM) <span id="bpmVal" class="val-badge">120</span></label>
-                <input type="range" id="bpm" min="50" max="220" value="120">
-              </div>
-              <div class="control-group">
-                <label>🎵 Transposición (Semitonos) <span id="pitchVal" class="val-badge">0</span></label>
-                <input type="range" id="pitch" min="-12" max="12" value="0">
-              </div>
-              <div class="control-group">
-                <label>✨ Brillo (Filtro Hz) <span id="filterVal" class="val-badge">3000</span></label>
-                <input type="range" id="filter" min="300" max="8000" value="3000">
-              </div>
-              <div class="control-group" style="grid-column: span 2;">
-                <label>🌌 Reverb / Espacialidad <span id="reverbVal" class="val-badge">30%</span></label>
-                <input type="range" id="reverb" min="0" max="0.9" step="0.05" value="0.3">
+              <div>
+                <label>⏱️ Tempo Global (BPM)</label>
+                <input type="range" id="bpm" min="50" max="180" value="100">
               </div>
             </div>
           </div>
 
           <script>
-            const notes = {notes_js};
+            const layer1Notes = {l1_json};
+            const layer2Notes = {l2_json};
             let isPlaying = false;
-            let currentSynth, filterNode, reverbNode, sequence;
-
-            const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-
-            function transposeNote(noteStr, semitones) {{
-              if (!noteStr) return noteStr;
-              let name = noteStr.slice(0, -1);
-              let octave = parseInt(noteStr.slice(-1));
-              let idx = noteNames.indexOf(name);
-              if (idx === -1) return noteStr;
-
-              let totalMidi = (octave + 1) * 12 + idx + semitones;
-              let newOctave = Math.floor(totalMidi / 12) - 1;
-              let newIdx = (totalMidi % 12 + 12) % 12;
-              return noteNames[newIdx] + newOctave;
-            }}
+            let bassSynth, leadSynth, reverb, filterL1;
+            let seq1, seq2;
 
             async function initAudio() {{
               await Tone.start();
 
-              filterNode = new Tone.Filter(3000, "lowpass").toDestination();
-              reverbNode = new Tone.Reverb({{ decay: 3, wet: 0.3 }}).connect(filterNode);
-              await reverbNode.generate();
+              reverb = new Tone.Reverb({{ decay: 3, wet: 0.4 }}).toDestination();
+              await reverb.generate();
 
-              createSynth('Synth');
+              filterL1 = new Tone.Filter(600, "lowpass").toDestination();
 
-              sequence = new Tone.Sequence((time, note) => {{
-                let shift = parseInt(document.getElementById('pitch').value);
-                let shiftedNote = transposeNote(note, shift);
-                if (currentSynth) {{
-                  currentSynth.triggerAttackRelease(shiftedNote, "8n", time);
-                }}
-              }}, notes, "4n");
+              bassSynth = new Tone.MonoSynth({{
+                oscillator: {{ type: "sawtooth" }},
+                envelope: {{ attack: 0.1, decay: 0.4, sustain: 0.8, release: 1.2 }}
+              }}).connect(filterL1);
+
+              leadSynth = new Tone.PolySynth(Tone.Synth, {{
+                oscillator: {{ type: "triangle" }},
+                envelope: {{ attack: 0.02, decay: 0.2, sustain: 0.2, release: 0.6 }}
+              }}).connect(reverb);
+
+              seq1 = new Tone.Sequence((time, note) => {{
+                bassSynth.triggerAttackRelease(note, "2n", time);
+              }}, layer1Notes, "2n");
+
+              seq2 = new Tone.Sequence((time, note) => {{
+                leadSynth.triggerAttackRelease(note, "8n", time);
+              }}, layer2Notes, "4n");
 
               Tone.Transport.bpm.value = parseInt(document.getElementById('bpm').value);
-            }}
-
-            function createSynth(type) {{
-              if (currentSynth) currentSynth.dispose();
-
-              if (type === 'AMSynth') currentSynth = new Tone.AMSynth().connect(reverbNode);
-              else if (type === 'FMSynth') currentSynth = new Tone.FMSynth().connect(reverbNode);
-              else if (type === 'DuoSynth') currentSynth = new Tone.DuoSynth().connect(reverbNode);
-              else currentSynth = new Tone.Synth({{ envelope: {{ attack: 0.02, decay: 0.3, sustain: 0.2, release: 0.8 }} }}).connect(reverbNode);
             }}
 
             document.getElementById('playBtn').addEventListener('click', async () => {{
               if (!isPlaying) {{
                 await initAudio();
                 Tone.Transport.start();
-                sequence.start(0);
+                seq1.start(0);
+                seq2.start(0);
                 isPlaying = true;
-                document.getElementById('playBtn').innerText = "⏸️ Pausar Bucle";
+                document.getElementById('playBtn').innerText = "⏸️ Pausar Mezcla";
                 document.getElementById('playBtn').style.background = "#30363d";
               }} else {{
                 Tone.Transport.stop();
-                if (sequence) sequence.stop();
+                if (seq1) seq1.stop();
+                if (seq2) seq2.stop();
                 isPlaying = false;
-                document.getElementById('playBtn').innerText = "▶️ Iniciar Bucle en Tiempo Real";
-                document.getElementById('playBtn').style.background = "#ff4b4b";
+                document.getElementById('playBtn').innerText = "▶️ Reproducir Mezcla Polifónica";
+                document.getElementById('playBtn').style.background = "#00c853";
               }}
             }});
 
-            document.getElementById('synthType').addEventListener('change', (e) => {{
-              createSynth(e.target.value);
+            document.getElementById('volL1').addEventListener('input', (e) => {{
+              if (bassSynth) bassSynth.volume.value = parseFloat(e.target.value);
+            }});
+
+            document.getElementById('volL2').addEventListener('input', (e) => {{
+              if (leadSynth) leadSynth.volume.value = parseFloat(e.target.value);
+            }});
+
+            document.getElementById('filterL1').addEventListener('input', (e) => {{
+              if (filterL1) filterL1.frequency.value = parseFloat(e.target.value);
+            }});
+
+            document.getElementById('reverbL2').addEventListener('input', (e) => {{
+              if (reverb) reverb.wet.value = parseFloat(e.target.value);
             }});
 
             document.getElementById('bpm').addEventListener('input', (e) => {{
-              document.getElementById('bpmVal').innerText = e.target.value;
               Tone.Transport.bpm.value = parseFloat(e.target.value);
-            }});
-
-            document.getElementById('pitch').addEventListener('input', (e) => {{
-              document.getElementById('pitchVal').innerText = e.target.value;
-            }});
-
-            document.getElementById('filter').addEventListener('input', (e) => {{
-              document.getElementById('filterVal').innerText = e.target.value;
-              if (filterNode) filterNode.frequency.value = parseFloat(e.target.value);
-            }});
-
-            document.getElementById('reverb').addEventListener('input', (e) => {{
-              document.getElementById('reverbVal').innerText = Math.round(e.target.value * 100) + "%";
-              if (reverbNode) reverbNode.wet.value = parseFloat(e.target.value);
             }});
           </script>
         </body>
         </html>
         """
-        components.html(html_code, height=450)
+        components.html(html_code, height=480)
     else:
-        st.info("👈 Carga un video y presiona 'Extraer Melodía del Video' para activar el sintetizador en tiempo real.")
+        st.info("👈 Carga un video para que OpenCV extraiga los movimientos de fondo y frente.")
