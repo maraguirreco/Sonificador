@@ -3,12 +3,13 @@ import cv2
 import numpy as np
 import tempfile
 import json
+import base64
 import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Motion Sound Studio Pro", page_icon="🌊", layout="wide")
 
 st.title("🌊 Everyday Motion Sound Studio")
-st.write("Extrae melodías del movimiento cotidiano, ajusta volúmenes y efectos en vivo sin detener la música, y graba tus pistas.")
+st.write("Sonificación de movimiento en tiempo real con video sincronizado, mezcla en vivo y exportación WAV.")
 
 if 'layers_data' not in st.session_state:
     st.session_state['layers_data'] = []
@@ -90,6 +91,9 @@ def process_video_to_sound_layers(video_path, selected_scale):
 # --- ESTRUCTURA DE LA PÁGINA ---
 col_vid, col_studio = st.columns([1, 1.3])
 
+video_b64 = ""
+video_mime = "video/mp4"
+
 with col_vid:
     st.subheader("📹 1. Cargar Video Cotidiano")
     mood_selected = st.selectbox("Atmósfera Musical (Mood):", list(MOOD_SCALES.keys()))
@@ -98,10 +102,14 @@ with col_vid:
     video_file = st.file_uploader("Sube un video (.mp4, .mov, .avi)", type=["mp4", "mov", "avi"])
     if video_file:
         st.video(video_file)
+        video_bytes = video_file.getvalue()
+        video_b64 = base64.b64encode(video_bytes).decode('utf-8')
+        video_mime = video_file.type if video_file.type else "video/mp4"
+
         if st.button("✨ Procesar Movimiento a Música"):
             with st.spinner("Escaneando subcapas de movimiento..."):
                 tfile = tempfile.NamedTemporaryFile(delete=False)
-                tfile.write(video_file.read())
+                tfile.write(video_bytes)
                 layers, error = process_video_to_sound_layers(tfile.name, scale_notes)
                 if error:
                     st.error(error)
@@ -110,7 +118,7 @@ with col_vid:
                     st.success(f"¡Éxito! Se crearon {len(layers)} capas independientes.")
 
 with col_studio:
-    st.subheader("🎛️ 2. Estudio de Sonificación en Vivo")
+    st.subheader("🎛️ 2. Estudio de Sonificación Sincronizado")
     
     if st.session_state['layers_data']:
         layers_json = json.dumps(st.session_state['layers_data'])
@@ -127,6 +135,15 @@ with col_studio:
             
             .studio-box {
               background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 16px;
+            }
+
+            .sync-video-container {
+              width: 100%; border-radius: 8px; overflow: hidden; background: #000;
+              margin-bottom: 12px; border: 2px solid #30363d;
+            }
+
+            video {
+              width: 100%; max-height: 220px; object-fit: contain; display: block;
             }
 
             .global-controls {
@@ -162,7 +179,14 @@ with col_studio:
 
           <div class="studio-card">
             
-            <!-- MASTER & EFFECT CONTROLS (CONTINUOS EN VIVO) -->
+            <!-- VIDEO SINCRONIZADO EN VIVO -->
+            <div class="sync-video-container">
+              <video id="syncVideo" loop muted playsinline>
+                <source src="data:__MIME__;base64,__VIDEO_B64__" type="__MIME__">
+              </video>
+            </div>
+
+            <!-- MASTER & EFFECT CONTROLES (CONTINUOS EN VIVO) -->
             <div class="global-controls">
               <div>
                 <label>⏱️ TEMPO: <b id="lblBpm">100</b> BPM</label>
@@ -195,7 +219,7 @@ with col_studio:
             <div id="tracksContainer"></div>
 
             <!-- BOTONES DE REPRODUCCIÓN Y EXPORTACIÓN -->
-            <button id="btnPlay" class="btn-action" onclick="togglePlay()">▶️ REPRODUCIR EN VIVO</button>
+            <button id="btnPlay" class="btn-action" onclick="togglePlay()">▶️ REPRODUCIR VIDEO Y MÚSICA EN SYNC</button>
             <button id="btnRec" class="btn-action" style="background:#8957e5;" onclick="toggleRecord()">● GRABAR MEZCLA MASTER</button>
             <a id="btnDownload" class="btn-action btn-dl" style="display:none;" download="Everyday_Motion_Track.wav">⬇️ DESCARGAR ARCHIVO WAV</a>
 
@@ -293,18 +317,15 @@ with col_studio:
               layers.forEach((layer, idx) => {
                 let synth;
                 if (idx === 0) {
-                  // Bajo
                   synth = new Tone.MonoSynth({
                     oscillator: { type: 'sawtooth' },
                     envelope: { attack: 0.05, decay: 0.3, sustain: 0.8, release: 0.8 }
                   }).connect(reverbNode);
                 } else if (idx === 1) {
-                  // Lead
                   synth = new Tone.PolySynth(Tone.Synth, {
                     envelope: { attack: 0.05, release: 0.6 }
                   }).connect(delayNode);
                 } else {
-                  // Pad / Textura
                   synth = new Tone.PolySynth(Tone.Synth, {
                     oscillator: { type: 'sine' },
                     envelope: { attack: 0.2, release: 1.5 }
@@ -323,6 +344,7 @@ with col_studio:
             async function togglePlay() {
               await initAudioEngine();
               const btn = document.getElementById('btnPlay');
+              const vid = document.getElementById('syncVideo');
 
               if (!isPlaying) {
                 sequences = [];
@@ -334,16 +356,26 @@ with col_studio:
                   sequences.push(seq);
                 });
 
+                if (vid) {
+                  vid.currentTime = 0;
+                  vid.play();
+                }
+
                 Tone.Transport.start();
                 isPlaying = true;
                 btn.className = 'btn-action playing';
-                btn.innerText = "⏸️ DETENER";
+                btn.innerText = "⏸️ DETENER VIDEO Y MÚSICA";
               } else {
                 Tone.Transport.stop();
                 sequences.forEach(s => s.dispose());
+                
+                if (vid) {
+                  vid.pause();
+                }
+
                 isPlaying = false;
                 btn.className = 'btn-action';
-                btn.innerText = "▶️ REPRODUCIR EN VIVO";
+                btn.innerText = "▶️ REPRODUCIR VIDEO Y MÚSICA EN SYNC";
               }
             }
 
@@ -370,7 +402,10 @@ with col_studio:
         </html>
         """
 
-        rendered_html = html_template.replace("__LAYERS_JSON__", layers_json)
-        components.html(rendered_html, height=560)
+        rendered_html = html_template.replace("__LAYERS_JSON__", layers_json)\
+            .replace("__VIDEO_B64__", video_b64)\
+            .replace("__MIME__", video_mime)
+
+        components.html(rendered_html, height=780)
     else:
-        st.info("👈 Sube un video y presiona 'Procesar Movimiento a Música' para generar tus pistas.")
+        st.info("👈 Sube un video y presiona 'Procesar Movimiento a Música' para extraer tus pistas.")
