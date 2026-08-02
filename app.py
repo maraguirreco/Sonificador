@@ -32,7 +32,7 @@ def extract_organic_motion_events(video_path, selected_scale):
         return None, "No se pudo leer el archivo de video."
     
     prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
-    height, width, _ = prev_gray.shape
+    height, width = prev_gray.shape  # <--- CORREGIDO AQUÍ (Tupla 2D para Grayscale)
     
     frame_count, max_frames = 0, 180 # Aprox 6 segundos
     raw_events_by_layer = {}
@@ -204,7 +204,6 @@ with col_studio:
             let layerRoles = {}, layerOctaves = {}, layerVolumes = {};
             let reverbNode, limiterNode, recorderNode;
 
-            // Transposición de notas por octavas
             function shiftNote(noteStr, octaveOffset) {
               if (!noteStr || octaveOffset === 0) return noteStr;
               let noteName = noteStr.slice(0, -1);
@@ -213,7 +212,6 @@ with col_studio:
               return noteName + newOct;
             }
 
-            // Crear el sintetizador adecuado según el rol elegido
             function createSynthForRole(roleType) {
               let synth;
               if (roleType === 'bass') {
@@ -247,7 +245,6 @@ with col_studio:
               return synth.connect(reverbNode);
             }
 
-            // Renderizar tarjetas por cada capa detectada dinámicamente
             const container = document.getElementById('tracksContainer');
             layers.forEach((layer, idx) => {
               trackStates[idx] = true;
