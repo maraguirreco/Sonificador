@@ -3,13 +3,12 @@ import cv2
 import numpy as np
 import tempfile
 import json
-import base64
 import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Everyday Motion Sound Studio", page_icon="🌊", layout="wide")
 
-st.title("🌊 Everyday Motion Sound Studio // Clean Audio & Live Scales")
-st.write("Cambia de escala armónica en tiempo real mientras suena la música. Sonido limpio sin distorsión ni saturación.")
+st.title("🌊 Everyday Motion Sound Studio Pro")
+st.write("Herramienta de sonificación musical limpia: convierte movimiento en melodías ampliadas de 2 octavas con control total de velocidad y mezcla.")
 
 if 'layers_events' not in st.session_state:
     st.session_state['layers_events'] = []
@@ -43,16 +42,16 @@ def extract_organic_motion_positions(video_path):
             
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         diff = cv2.absdiff(prev_gray, gray)
-        _, thresh = cv2.threshold(diff, 18, 255, cv2.THRESH_BINARY)
+        _, thresh = cv2.threshold(diff, 16, 255, cv2.THRESH_BINARY)
         
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        valid_contours = [c for c in contours if cv2.contourArea(c) > 25]
+        valid_contours = [c for c in contours if cv2.contourArea(c) > 20]
         
         if valid_contours:
             valid_contours = sorted(valid_contours, key=cv2.contourArea, reverse=True)
             timestamp = round(frame_count / fps, 2)
             
-            # Guardar la altura relativa (0.0 a 1.0) para que JS la traduzca a cualquier escala en vivo
+            # Detectar hasta 6 capas dinámicas independientes
             for idx, c in enumerate(valid_contours[:6]):
                 M = cv2.moments(c)
                 if M["m00"] != 0:
@@ -62,7 +61,7 @@ def extract_organic_motion_positions(video_path):
                     if idx not in raw_events_by_layer:
                         raw_events_by_layer[idx] = []
                     
-                    if not raw_events_by_layer[idx] or (timestamp - raw_events_by_layer[idx][-1]['time']) > 0.12:
+                    if not raw_events_by_layer[idx] or (timestamp - raw_events_by_layer[idx][-1]['time']) > 0.10:
                         raw_events_by_layer[idx].append({
                             'time': timestamp,
                             'norm_y': norm_y
@@ -87,21 +86,18 @@ def extract_organic_motion_positions(video_path):
     return structured_layers, video_duration, None
 
 # --- UI STREAMLIT ---
-col_vid, col_studio = st.columns([1, 1.3])
-
-video_b64 = ""
+col_vid, col_studio = st.columns([1, 1.4])
 
 with col_vid:
-    st.subheader("📹 1. Video de Origen")
-    video_file = st.file_uploader("Sube un video (.mp4, .mov, .avi)", type=["mp4", "mov", "avi"])
+    st.subheader("📹 1. Cargar y Analizar Video")
+    video_file = st.file_uploader("Sube tu video (.mp4, .mov, .avi)", type=["mp4", "mov", "avi"])
     
     if video_file:
         st.video(video_file)
         video_bytes = video_file.getvalue()
-        video_b64 = base64.b64encode(video_bytes).decode('utf-8')
 
-        if st.button("✨ Escanear Subcapas de Movimiento"):
-            with st.spinner("Analizando movimiento y extrayendo posiciones relativas..."):
+        if st.button("✨ Extraer Capas de Movimiento"):
+            with st.spinner("Escaneando trayectorias y marcas de tiempo..."):
                 tfile = tempfile.NamedTemporaryFile(delete=False)
                 tfile.write(video_bytes)
                 layers, duration, error = extract_organic_motion_positions(tfile.name)
@@ -110,10 +106,10 @@ with col_vid:
                 else:
                     st.session_state['layers_events'] = layers
                     st.session_state['video_duration'] = duration
-                    st.success(f"¡Éxito! Detectadas {len(layers)} subcapas. Bucle de {duration}s listo.")
+                    st.success(f"¡Éxito! Detectadas {len(layers)} subcapas únicas. Duración bucle: {duration}s")
 
 with col_studio:
-    st.subheader("🎛️ 2. Estudio de Sonificación Limpio en Vivo")
+    st.subheader("🎛️ 2. Consola de Producción y Estudio Limpio")
     
     if st.session_state['layers_events']:
         layers_json = json.dumps(st.session_state['layers_events'])
@@ -131,16 +127,14 @@ with col_studio:
             
             .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 14px; }
 
-            .video-box {
-              width: 100%; border-radius: 8px; overflow: hidden; background: #000;
-              margin-bottom: 12px; border: 1px solid #30363d;
+            .global-panel {
+              display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+              background: #21262d; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px;
             }
-
-            video { width: 100%; max-height: 190px; object-fit: contain; display: block; }
 
             .track-card {
               background: #21262d; border-left: 4px solid #00e676; border-radius: 6px;
-              padding: 10px; margin-bottom: 8px; display: grid; grid-template-columns: 100px 1.2fr 1fr 1fr 65px;
+              padding: 10px; margin-bottom: 8px; display: grid; grid-template-columns: 90px 1.2fr 1fr 1fr 60px;
               gap: 8px; align-items: center;
             }
 
@@ -165,48 +159,60 @@ with col_studio:
 
           <div class="card">
             
-            <div class="video-box">
-              <video id="syncVideo" loop muted playsinline>
-                <source src="data:video/mp4;base64,__VIDEO_B64__" type="video/mp4">
-              </video>
-            </div>
+            <!-- MASTER CONTROLS -->
+            <div class="global-panel">
+              <div>
+                <label>🎼 NOTA RAÍZ (ROOT KEY)</label>
+                <select id="rootKeySelect" onchange="updateScaleInRealtime()">
+                  <option value="C" selected>C (Do)</option>
+                  <option value="D">D (Re)</option>
+                  <option value="Eb">Eb (Mi bemol)</option>
+                  <option value="F">F (Fa)</option>
+                  <option value="G">G (Sol)</option>
+                  <option value="A">A (La)</option>
+                  <option value="Bb">Bb (Si bemol)</option>
+                </select>
+              </div>
 
-            <!-- CONTROLES EN VIVO: ESCALA Y MASTER -->
-            <div style="display:grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap:8px; background:#21262d; padding:8px 12px; border-radius:8px; margin-bottom:10px;">
               <div>
                 <label>🎨 ESCALA ARMÓNICA (EN VIVO)</label>
-                <select id="scaleSelect" onchange="updateScaleInRealtime(this.value)">
-                  <option value="warm" selected>Cálida / Orgánica (Mayor)</option>
-                  <option value="sad">Melancólica / Sad (Menor)</option>
-                  <option value="spatial">Espacial / Ambient (Lydia)</option>
-                  <option value="sakura">Japonesa Sakura (Pentatónica)</option>
-                  <option value="funk">Funk / Groove (Dórica)</option>
+                <select id="scaleTypeSelect" onchange="updateScaleInRealtime()">
+                  <option value="minor" selected>Sad / Melancólica (Menor)</option>
+                  <option value="major">Cálida / Alegre (Mayor)</option>
+                  <option value="lydian">Espacial / Ambient (Lidia)</option>
+                  <option value="pentatonic">Japonesa / Meditativa</option>
+                  <option value="dorian">Funk / Groove (Dórica)</option>
+                  <option value="harmonicMinor">Neoclásica / Drama</option>
                 </select>
               </div>
+
               <div>
-                <label>⏱️ VELOCIDAD BUCLE</label>
-                <select id="speedSelect" onchange="updatePlaybackSpeed(this.value)">
-                  <option value="0.5">0.5x (Lento)</option>
-                  <option value="1.0" selected>1.0x (Normal)</option>
-                  <option value="1.25">1.25x (Rápido)</option>
-                </select>
+                <label>⚡ SPEED / VELOCIDAD: <b id="lblSpeed">1.0x</b></label>
+                <input type="range" id="speedSlider" min="0.2" max="3.0" step="0.1" value="1.0" oninput="updatePlaybackSpeed(this.value)">
               </div>
+
               <div>
-                <label>🔊 MASTER VOL (dB)</label>
+                <label>🔊 MASTER VOL: <b id="lblMasterVol">-3</b> dB</label>
                 <input type="range" id="masterVol" min="-24" max="3" value="-3" oninput="updateMasterVol(this.value)">
               </div>
+
               <div>
                 <label>🌌 REVERB ESPACIAL</label>
-                <input type="range" id="reverbWet" min="0" max="0.7" step="0.05" value="0.2" oninput="updateReverb(this.value)">
+                <input type="range" id="reverbWet" min="0" max="0.7" step="0.05" value="0.25" oninput="updateReverb(this.value)">
+              </div>
+
+              <div>
+                <label>🎚️ LIMITADOR ANTI-DISTORSIÓN</label>
+                <span style="font-size:9px; color:#00e676; font-weight:bold;">ACTIVO (-2 dB)</span>
               </div>
             </div>
 
             <div style="font-size: 9px; font-weight: bold; color: #8b949e; margin-bottom: 6px;">ASIGNACIÓN POR SUBCAPA (DURACIÓN BUCLE: __DURATION__s):</div>
             <div id="tracksContainer"></div>
 
-            <button id="btnPlay" class="btn-action" onclick="togglePlay()">▶️ REPRODUCIR EN BUCLE CONTINUO</button>
-            <button id="btnRec" class="btn-action" style="background:#8957e5; color:white;" onclick="toggleRecord()">● GRABAR ARCHIVO AUDIO</button>
-            <a id="btnDownload" class="btn-action btn-dl" style="display:none;" download="Clean_Motion_Track.wav">⬇️ DESCARGAR WAV</a>
+            <button id="btnPlay" class="btn-action" onclick="togglePlay()">▶️ REPRODUCIR BUCLE LIMPIO</button>
+            <button id="btnRec" class="btn-action" style="background:#8957e5; color:white;" onclick="toggleRecord()">● GRABAR ARCHIVO AUDIO (WAV)</button>
+            <a id="btnDownload" class="btn-action btn-dl" style="display:none;" download="Motion_Studio_Track.wav">⬇️ DESCARGAR WAV</a>
 
           </div>
 
@@ -214,22 +220,49 @@ with col_studio:
             const layers = __LAYERS_JSON__;
             const videoDuration = __DURATION__;
 
-            // DICIONARIO DE ESCALAS DISPONIBLES EN TIEMPO REAL
-            const SCALES_DB = {
-              warm: ['C2', 'G2', 'C3', 'E3', 'G3', 'A3', 'C4', 'E4', 'G4'],
-              sad: ['A1', 'E2', 'A2', 'C3', 'E3', 'F3', 'A3', 'C4', 'E4'],
-              spatial: ['D2', 'A2', 'D3', 'F#3', 'A3', 'B3', 'D4', 'F#4', 'A4'],
-              sakura: ['C2', 'G2', 'C3', 'Db3', 'F3', 'G3', 'Ab3', 'C4', 'Db4'],
-              funk: ['C2', 'Eb3', 'F3', 'F#3', 'G3', 'Bb3', 'C4', 'Eb4']
+            // FÓRMULAS DE ESCALAS EXTENDIDAS A 2 OCTAVAS COMPLETAS (14 NOTAS)
+            const SCALE_INTERVALS = {
+              minor: [0, 2, 3, 5, 7, 8, 10, 12, 14, 15, 17, 19, 20, 22],
+              major: [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23],
+              lydian: [0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23],
+              pentatonic: [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31],
+              dorian: [0, 2, 3, 5, 7, 9, 10, 12, 14, 15, 17, 19, 21, 22],
+              harmonicMinor: [0, 2, 3, 5, 7, 8, 11, 12, 14, 15, 17, 19, 20, 23]
             };
 
-            let currentScaleKey = 'warm';
+            const NOTE_NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "G#", "A", "Bb", "B"];
+
+            let currentRootKey = "C";
+            let currentScaleType = "minor";
+            let currentScaleNotes = [];
+
             let isPlaying = false, isRecording = false;
             let playbackSpeed = 1.0;
             let synths = [], parts = [], trackStates = {};
             let layerRoles = {}, layerOctaves = {}, layerVolumes = {};
-            let reverbNode, limiterNode, recorderNode;
-            let loopRepeatScheduleId = null;
+            let reverbNode, masterGainNode, limiterNode, recorderNode;
+
+            // Generador de escala dinámica en tiempo real
+            function buildScaleNotes(root, scaleType) {
+              let rootIndex = NOTE_NAMES.indexOf(root);
+              if (rootIndex === -1) rootIndex = 0;
+              let intervals = SCALE_INTERVALS[scaleType] || SCALE_INTERVALS['minor'];
+              
+              return intervals.map(semitones => {
+                let totalMidi = 36 + rootIndex + semitones; // Comienza en Octava 2 (C2)
+                let noteName = NOTE_NAMES[totalMidi % 12];
+                let octave = Math.floor(totalMidi / 12) - 1;
+                return noteName + octave;
+              });
+            }
+
+            function updateScaleInRealtime() {
+              currentRootKey = document.getElementById('rootKeySelect').value;
+              currentScaleType = document.getElementById('scaleTypeSelect').value;
+              currentScaleNotes = buildScaleNotes(currentRootKey, currentScaleType);
+            }
+
+            currentScaleNotes = buildScaleNotes(currentRootKey, currentScaleType);
 
             function shiftNote(noteStr, octaveOffset) {
               if (!noteStr || octaveOffset === 0) return noteStr;
@@ -239,42 +272,44 @@ with col_studio:
               return noteName + newOct;
             }
 
-            // CREACIÓN DE SINTETIZADORES LIMPIOS Y REDONDOS (HEADROOM CUIDADO)
+            // MOTORES DE SÍNTESIS CON GAIN STAGING Y FILTROS ANTI-CLIPPING
             function createSynthForRole(roleType) {
               let synth;
               if (roleType === 'bass') {
-                // Bajo cálido con filtro paso-bajo para no distorsionar
                 synth = new Tone.MonoSynth({
                   oscillator: { type: 'triangle' },
-                  envelope: { attack: 0.05, decay: 0.3, sustain: 0.7, release: 0.8 },
-                  filter: { Q: 1, type: 'lowpass', rollover: -12 },
-                  filterEnvelope: { attack: 0.02, decay: 0.2, sustain: 0.4, release: 0.6, baseFrequency: 120, octaves: 2 }
+                  envelope: { attack: 0.06, decay: 0.3, sustain: 0.7, release: 0.8 },
+                  filter: { Q: 1, type: 'lowpass' },
+                  filterEnvelope: { attack: 0.02, decay: 0.2, sustain: 0.4, release: 0.6, baseFrequency: 100, octaves: 2 }
                 });
               } else if (roleType === 'lead') {
                 synth = new Tone.PolySynth(Tone.Synth, {
+                  maxPolyphony: 4,
                   oscillator: { type: 'sine' },
-                  envelope: { attack: 0.04, decay: 0.2, sustain: 0.4, release: 0.8 }
+                  envelope: { attack: 0.05, decay: 0.25, sustain: 0.5, release: 0.8 }
                 });
               } else if (roleType === 'pad') {
                 synth = new Tone.PolySynth(Tone.Synth, {
+                  maxPolyphony: 4,
                   oscillator: { type: 'sine' },
-                  envelope: { attack: 0.4, decay: 0.8, sustain: 0.8, release: 1.8 }
+                  envelope: { attack: 0.5, decay: 1.0, sustain: 0.8, release: 2.0 }
                 });
               } else if (roleType === 'perc') {
                 synth = new Tone.PolySynth(Tone.Synth, {
+                  maxPolyphony: 4,
                   oscillator: { type: 'triangle' },
-                  envelope: { attack: 0.005, decay: 0.1, sustain: 0.0, release: 0.1 }
+                  envelope: { attack: 0.005, decay: 0.12, sustain: 0.0, release: 0.1 }
                 });
               } else if (roleType === 'pluck') {
                 synth = new Tone.PolySynth(Tone.FMSynth, {
+                  maxPolyphony: 4,
                   harmonicity: 1.5,
-                  modulationIndex: 0.8, // Bajo para evitar distorsión metálica
-                  envelope: { attack: 0.01, decay: 0.4, sustain: 0.2, release: 1.0 }
+                  modulationIndex: 0.6,
+                  envelope: { attack: 0.01, decay: 0.3, sustain: 0.2, release: 0.8 }
                 });
               }
 
-              // Volumen base con -14dB de margen para evitar clipping
-              synth.volume.value = -14;
+              synth.volume.value = -18; // Ganancia segura atenuada
               return synth.connect(reverbNode);
             }
 
@@ -283,7 +318,7 @@ with col_studio:
               trackStates[idx] = true;
               layerRoles[idx] = idx === 0 ? 'bass' : (idx === 1 ? 'lead' : (idx === 2 ? 'pad' : 'pluck'));
               layerOctaves[idx] = 0;
-              layerVolumes[idx] = -14; // Nivel seguro
+              layerVolumes[idx] = -18;
 
               const card = document.createElement('div');
               card.className = 'track-card';
@@ -295,8 +330,8 @@ with col_studio:
                 <div>
                   <label>TIMBRE / ROL</label>
                   <select onchange="changeLayerRole(${idx}, this.value)">
-                    <option value="bass" ${idx===0?'selected':''}>🎸 Bajo Cálido (Sub-Bass)</option>
-                    <option value="lead" ${idx===1?'selected':''}>🎹 Melodía Suave (Lead)</option>
+                    <option value="bass" ${idx===0?'selected':''}>🎸 Bajo Cálido (Triangle)</option>
+                    <option value="lead" ${idx===1?'selected':''}>🎹 Rhodes / Lead Suave</option>
                     <option value="pad" ${idx===2?'selected':''}>🌌 Textura Ambient (Pad)</option>
                     <option value="pluck" ${idx===3?'selected':''}>🔔 Pluck Cristalino</option>
                     <option value="perc">🥁 Percusión Tonal</option>
@@ -314,16 +349,12 @@ with col_studio:
                 </div>
                 <div>
                   <label>VOLUMEN (dB)</label>
-                  <input type="range" min="-30" max="0" value="-14" oninput="updateTrackVol(${idx}, this.value)">
+                  <input type="range" min="-36" max="0" value="-18" oninput="updateTrackVol(${idx}, this.value)">
                 </div>
                 <button id="btnMute_${idx}" class="btn-mute" onclick="toggleMute(${idx})">ON</button>
               `;
               container.appendChild(card);
             });
-
-            function updateScaleInRealtime(newScaleKey) {
-              currentScaleKey = newScaleKey;
-            }
 
             function changeLayerRole(idx, newRole) {
               layerRoles[idx] = newRole;
@@ -370,9 +401,8 @@ with col_studio:
 
             function updatePlaybackSpeed(val) {
               playbackSpeed = parseFloat(val);
+              document.getElementById('lblSpeed').innerText = playbackSpeed.toFixed(1) + 'x';
               Tone.Transport.timeScale = playbackSpeed;
-              const vid = document.getElementById('syncVideo');
-              if (vid) vid.playbackRate = playbackSpeed;
             }
 
             async function initAudioEngine() {
@@ -380,13 +410,12 @@ with col_studio:
               await Tone.start();
 
               recorderNode = new Tone.Recorder();
-              
-              // Limitador Master a -2dB para evitar distorsión totalmente
               limiterNode = new Tone.Limiter(-2).connect(recorderNode).toDestination();
-              reverbNode = new Tone.Reverb({ decay: 2.8, wet: 0.20 }).connect(limiterNode);
+              
+              masterGainNode = new Tone.Gain(0.35).connect(limiterNode);
+              reverbNode = new Tone.Reverb({ decay: 2.8, wet: 0.25 }).connect(masterGainNode);
               await reverbNode.generate();
 
-              // Nivel master cómodo y con margen
               Tone.Destination.volume.value = -3;
 
               synths = [];
@@ -401,7 +430,6 @@ with col_studio:
             async function togglePlay() {
               await initAudioEngine();
               const btn = document.getElementById('btnPlay');
-              const vid = document.getElementById('syncVideo');
 
               if (!isPlaying) {
                 parts = [];
@@ -414,10 +442,8 @@ with col_studio:
                   let formattedEvents = layer.events.map(e => ({ time: e.time, norm_y: e.norm_y }));
                   
                   let part = new Tone.Part((time, value) => {
-                    // Mapeo dinámico de escala en vivo
-                    let scaleArray = SCALES_DB[currentScaleKey];
-                    let noteIdx = Math.floor(value.norm_y * (scaleArray.length - 1));
-                    let baseNote = scaleArray[noteIdx];
+                    let noteIdx = Math.floor(value.norm_y * (currentScaleNotes.length - 1));
+                    let baseNote = currentScaleNotes[noteIdx];
                     let finalNote = shiftNote(baseNote, layerOctaves[idx]);
                     
                     synths[idx].triggerAttackRelease(finalNote, "8n", time);
@@ -430,32 +456,17 @@ with col_studio:
                   parts.push(part);
                 });
 
-                if (vid) {
-                  vid.currentTime = 0;
-                  vid.playbackRate = playbackSpeed;
-                  vid.play();
-                }
-
-                loopRepeatScheduleId = Tone.Transport.scheduleRepeat((time) => {
-                  if (vid) {
-                    vid.currentTime = 0;
-                    vid.play();
-                  }
-                }, videoDuration, 0);
-
                 Tone.Transport.start();
                 isPlaying = true;
                 btn.className = 'btn-action playing';
                 btn.innerText = "⏸️ DETENER BUCLE";
               } else {
                 Tone.Transport.stop();
-                if (loopRepeatScheduleId !== null) Tone.Transport.clear(loopRepeatScheduleId);
                 parts.forEach(p => p.dispose());
-                if (vid) vid.pause();
 
                 isPlaying = false;
                 btn.className = 'btn-action';
-                btn.innerText = "▶️ REPRODUCIR EN BUCLE CONTINUO";
+                btn.innerText = "▶️ REPRODUCIR BUCLE LIMPIO";
               }
             }
 
@@ -472,7 +483,7 @@ with col_studio:
               } else {
                 const recording = await recorderNode.stop();
                 isRecording = false;
-                btn.innerText = "● GRABAR ARCHIVO AUDIO";
+                btn.innerText = "● GRABAR ARCHIVO AUDIO (WAV)";
                 dlBtn.href = URL.createObjectURL(recording);
                 dlBtn.style.display = "flex";
               }
@@ -483,9 +494,8 @@ with col_studio:
         """
 
         rendered_html = html_template.replace("__LAYERS_JSON__", layers_json)\
-            .replace("__VIDEO_B64__", video_b64)\
             .replace("__DURATION__", str(duration_val))
             
-        components.html(rendered_html, height=1000)
+        components.html(rendered_html, height=720)
     else:
-        st.info("👈 Sube un video y presiona 'Escanear Subcapas de Movimiento' para comenzar.")
+        st.info("👈 Sube un video y presiona 'Extraer Capas de Movimiento' para comenzar.")
