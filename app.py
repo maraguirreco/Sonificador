@@ -8,25 +8,17 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Everyday Motion Sound Studio", page_icon="🌊", layout="wide")
 
-st.title("🌊 Everyday Motion Sound Studio // Precision Tempo & Infinite Loop")
-st.write("Sonificación en bucle perfecto sincronizado con video. Controla la velocidad de reproducción y asigna instrumentos por capa.")
+st.title("🌊 Everyday Motion Sound Studio // Clean Audio & Live Scales")
+st.write("Cambia de escala armónica en tiempo real mientras suena la música. Sonido limpio sin distorsión ni saturación.")
 
 if 'layers_events' not in st.session_state:
     st.session_state['layers_events'] = []
 if 'video_duration' not in st.session_state:
     st.session_state['video_duration'] = 0.0
 
-SCALES = {
-    "Cálida / Orgánica": ['C2', 'G2', 'C3', 'E3', 'G3', 'A3', 'C4', 'E4', 'G4'],
-    "Melancólica / Menor": ['A1', 'E2', 'A2', 'C3', 'E3', 'F3', 'A3', 'C4', 'E4'],
-    "Espacial / Cristalina": ['D2', 'A2', 'D3', 'F#3', 'A3', 'B3', 'D4', 'F#4', 'A4'],
-    "Profunda / Lo-Fi": ['F1', 'C2', 'F2', 'Ab2', 'C3', 'Eb3', 'F3', 'Ab3', 'C4']
-}
-
-def extract_organic_motion_events(video_path, selected_scale):
+def extract_organic_motion_positions(video_path):
     cap = cv2.VideoCapture(video_path)
     
-    # Extraer FPS real del video
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 0 or np.isnan(fps):
         fps = 30.0
@@ -60,13 +52,12 @@ def extract_organic_motion_events(video_path, selected_scale):
             valid_contours = sorted(valid_contours, key=cv2.contourArea, reverse=True)
             timestamp = round(frame_count / fps, 2)
             
+            # Guardar la altura relativa (0.0 a 1.0) para que JS la traduzca a cualquier escala en vivo
             for idx, c in enumerate(valid_contours[:6]):
                 M = cv2.moments(c)
                 if M["m00"] != 0:
                     cy = int(M["m01"] / M["m00"])
-                    norm_y = 1.0 - (cy / height)
-                    note_idx = int(norm_y * (len(selected_scale) - 1))
-                    note = selected_scale[note_idx]
+                    norm_y = round(1.0 - (cy / height), 3)
                     
                     if idx not in raw_events_by_layer:
                         raw_events_by_layer[idx] = []
@@ -74,7 +65,7 @@ def extract_organic_motion_events(video_path, selected_scale):
                     if not raw_events_by_layer[idx] or (timestamp - raw_events_by_layer[idx][-1]['time']) > 0.12:
                         raw_events_by_layer[idx].append({
                             'time': timestamp,
-                            'note': note
+                            'norm_y': norm_y
                         })
 
         prev_gray = gray
@@ -102,29 +93,27 @@ video_b64 = ""
 
 with col_vid:
     st.subheader("📹 1. Video de Origen")
-    scale_choice = st.selectbox("Escala Armónica Base:", list(SCALES.keys()))
-    selected_scale = SCALES[scale_choice]
-
     video_file = st.file_uploader("Sube un video (.mp4, .mov, .avi)", type=["mp4", "mov", "avi"])
+    
     if video_file:
         st.video(video_file)
         video_bytes = video_file.getvalue()
         video_b64 = base64.b64encode(video_bytes).decode('utf-8')
 
-        if st.button("✨ Escanear Subcapas y FPS del Video"):
-            with st.spinner("Analizando velocidad de fotogramas y marcas de tiempo..."):
+        if st.button("✨ Escanear Subcapas de Movimiento"):
+            with st.spinner("Analizando movimiento y extrayendo posiciones relativas..."):
                 tfile = tempfile.NamedTemporaryFile(delete=False)
                 tfile.write(video_bytes)
-                layers, duration, error = extract_organic_motion_events(tfile.name, selected_scale)
+                layers, duration, error = extract_organic_motion_positions(tfile.name)
                 if error:
                     st.error(error)
                 else:
                     st.session_state['layers_events'] = layers
                     st.session_state['video_duration'] = duration
-                    st.success(f"¡Éxito! Detectadas {len(layers)} subcapas. Duración del Bucle: {duration}s")
+                    st.success(f"¡Éxito! Detectadas {len(layers)} subcapas. Bucle de {duration}s listo.")
 
 with col_studio:
-    st.subheader("🎛️ 2. Reproducción en Bucle Sincronizado")
+    st.subheader("🎛️ 2. Estudio de Sonificación Limpio en Vivo")
     
     if st.session_state['layers_events']:
         layers_json = json.dumps(st.session_state['layers_events'])
@@ -182,24 +171,33 @@ with col_studio:
               </video>
             </div>
 
-            <!-- CONTROLES MASTER & SPEED -->
-            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; background:#21262d; padding:8px 12px; border-radius:8px; margin-bottom:10px;">
+            <!-- CONTROLES EN VIVO: ESCALA Y MASTER -->
+            <div style="display:grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap:8px; background:#21262d; padding:8px 12px; border-radius:8px; margin-bottom:10px;">
               <div>
-                <label>⏱️ VELOCIDAD DE BUCLE</label>
+                <label>🎨 ESCALA ARMÓNICA (EN VIVO)</label>
+                <select id="scaleSelect" onchange="updateScaleInRealtime(this.value)">
+                  <option value="warm" selected>Cálida / Orgánica (Mayor)</option>
+                  <option value="sad">Melancólica / Sad (Menor)</option>
+                  <option value="spatial">Espacial / Ambient (Lydia)</option>
+                  <option value="sakura">Japonesa Sakura (Pentatónica)</option>
+                  <option value="funk">Funk / Groove (Dórica)</option>
+                </select>
+              </div>
+              <div>
+                <label>⏱️ VELOCIDAD BUCLE</label>
                 <select id="speedSelect" onchange="updatePlaybackSpeed(this.value)">
-                  <option value="0.5">0.5x (Lento / Ambient)</option>
-                  <option value="1.0" selected>1.0x (Tempo Real Video)</option>
-                  <option value="1.25">1.25x (Más Rápido)</option>
-                  <option value="1.5">1.5x (Urbano / Upbeat)</option>
+                  <option value="0.5">0.5x (Lento)</option>
+                  <option value="1.0" selected>1.0x (Normal)</option>
+                  <option value="1.25">1.25x (Rápido)</option>
                 </select>
               </div>
               <div>
                 <label>🔊 MASTER VOL (dB)</label>
-                <input type="range" id="masterVol" min="-30" max="6" value="0" oninput="updateMasterVol(this.value)">
+                <input type="range" id="masterVol" min="-24" max="3" value="-3" oninput="updateMasterVol(this.value)">
               </div>
               <div>
                 <label>🌌 REVERB ESPACIAL</label>
-                <input type="range" id="reverbWet" min="0" max="0.8" step="0.05" value="0.25" oninput="updateReverb(this.value)">
+                <input type="range" id="reverbWet" min="0" max="0.7" step="0.05" value="0.2" oninput="updateReverb(this.value)">
               </div>
             </div>
 
@@ -208,7 +206,7 @@ with col_studio:
 
             <button id="btnPlay" class="btn-action" onclick="togglePlay()">▶️ REPRODUCIR EN BUCLE CONTINUO</button>
             <button id="btnRec" class="btn-action" style="background:#8957e5; color:white;" onclick="toggleRecord()">● GRABAR ARCHIVO AUDIO</button>
-            <a id="btnDownload" class="btn-action btn-dl" style="display:none;" download="Loop_Motion_Track.wav">⬇️ DESCARGAR WAV</a>
+            <a id="btnDownload" class="btn-action btn-dl" style="display:none;" download="Clean_Motion_Track.wav">⬇️ DESCARGAR WAV</a>
 
           </div>
 
@@ -216,6 +214,16 @@ with col_studio:
             const layers = __LAYERS_JSON__;
             const videoDuration = __DURATION__;
 
+            // DICIONARIO DE ESCALAS DISPONIBLES EN TIEMPO REAL
+            const SCALES_DB = {
+              warm: ['C2', 'G2', 'C3', 'E3', 'G3', 'A3', 'C4', 'E4', 'G4'],
+              sad: ['A1', 'E2', 'A2', 'C3', 'E3', 'F3', 'A3', 'C4', 'E4'],
+              spatial: ['D2', 'A2', 'D3', 'F#3', 'A3', 'B3', 'D4', 'F#4', 'A4'],
+              sakura: ['C2', 'G2', 'C3', 'Db3', 'F3', 'G3', 'Ab3', 'C4', 'Db4'],
+              funk: ['C2', 'Eb3', 'F3', 'F#3', 'G3', 'Bb3', 'C4', 'Eb4']
+            };
+
+            let currentScaleKey = 'warm';
             let isPlaying = false, isRecording = false;
             let playbackSpeed = 1.0;
             let synths = [], parts = [], trackStates = {};
@@ -231,18 +239,21 @@ with col_studio:
               return noteName + newOct;
             }
 
+            // CREACIÓN DE SINTETIZADORES LIMPIOS Y REDONDOS (HEADROOM CUIDADO)
             function createSynthForRole(roleType) {
               let synth;
               if (roleType === 'bass') {
+                // Bajo cálido con filtro paso-bajo para no distorsionar
                 synth = new Tone.MonoSynth({
                   oscillator: { type: 'triangle' },
-                  envelope: { attack: 0.04, decay: 0.3, sustain: 0.7, release: 0.8 },
-                  filterEnvelope: { attack: 0.02, decay: 0.2, sustain: 0.4, release: 0.6, baseFrequency: 150 }
+                  envelope: { attack: 0.05, decay: 0.3, sustain: 0.7, release: 0.8 },
+                  filter: { Q: 1, type: 'lowpass', rollover: -12 },
+                  filterEnvelope: { attack: 0.02, decay: 0.2, sustain: 0.4, release: 0.6, baseFrequency: 120, octaves: 2 }
                 });
               } else if (roleType === 'lead') {
                 synth = new Tone.PolySynth(Tone.Synth, {
-                  oscillator: { type: 'sawtooth' },
-                  envelope: { attack: 0.02, decay: 0.2, sustain: 0.5, release: 0.6 }
+                  oscillator: { type: 'sine' },
+                  envelope: { attack: 0.04, decay: 0.2, sustain: 0.4, release: 0.8 }
                 });
               } else if (roleType === 'pad') {
                 synth = new Tone.PolySynth(Tone.Synth, {
@@ -251,16 +262,19 @@ with col_studio:
                 });
               } else if (roleType === 'perc') {
                 synth = new Tone.PolySynth(Tone.Synth, {
-                  oscillator: { type: 'square' },
-                  envelope: { attack: 0.001, decay: 0.1, sustain: 0.0, release: 0.1 }
+                  oscillator: { type: 'triangle' },
+                  envelope: { attack: 0.005, decay: 0.1, sustain: 0.0, release: 0.1 }
                 });
               } else if (roleType === 'pluck') {
                 synth = new Tone.PolySynth(Tone.FMSynth, {
-                  harmonicity: 3,
-                  modulationIndex: 2,
+                  harmonicity: 1.5,
+                  modulationIndex: 0.8, // Bajo para evitar distorsión metálica
                   envelope: { attack: 0.01, decay: 0.4, sustain: 0.2, release: 1.0 }
                 });
               }
+
+              // Volumen base con -14dB de margen para evitar clipping
+              synth.volume.value = -14;
               return synth.connect(reverbNode);
             }
 
@@ -269,7 +283,7 @@ with col_studio:
               trackStates[idx] = true;
               layerRoles[idx] = idx === 0 ? 'bass' : (idx === 1 ? 'lead' : (idx === 2 ? 'pad' : 'pluck'));
               layerOctaves[idx] = 0;
-              layerVolumes[idx] = 0;
+              layerVolumes[idx] = -14; // Nivel seguro
 
               const card = document.createElement('div');
               card.className = 'track-card';
@@ -281,11 +295,11 @@ with col_studio:
                 <div>
                   <label>TIMBRE / ROL</label>
                   <select onchange="changeLayerRole(${idx}, this.value)">
-                    <option value="bass" ${idx===0?'selected':''}>🎸 Bajo (Sub-Bass)</option>
-                    <option value="lead" ${idx===1?'selected':''}>🎹 Melodía (Lead)</option>
-                    <option value="pad" ${idx===2?'selected':''}>🌌 Textura (Pad)</option>
-                    <option value="pluck" ${idx===3?'selected':''}>🔔 Campana (Pluck)</option>
-                    <option value="perc">🥁 Percusión / Drum</option>
+                    <option value="bass" ${idx===0?'selected':''}>🎸 Bajo Cálido (Sub-Bass)</option>
+                    <option value="lead" ${idx===1?'selected':''}>🎹 Melodía Suave (Lead)</option>
+                    <option value="pad" ${idx===2?'selected':''}>🌌 Textura Ambient (Pad)</option>
+                    <option value="pluck" ${idx===3?'selected':''}>🔔 Pluck Cristalino</option>
+                    <option value="perc">🥁 Percusión Tonal</option>
                   </select>
                 </div>
                 <div>
@@ -300,12 +314,16 @@ with col_studio:
                 </div>
                 <div>
                   <label>VOLUMEN (dB)</label>
-                  <input type="range" min="-30" max="6" value="0" oninput="updateTrackVol(${idx}, this.value)">
+                  <input type="range" min="-30" max="0" value="-14" oninput="updateTrackVol(${idx}, this.value)">
                 </div>
                 <button id="btnMute_${idx}" class="btn-mute" onclick="toggleMute(${idx})">ON</button>
               `;
               container.appendChild(card);
             });
+
+            function updateScaleInRealtime(newScaleKey) {
+              currentScaleKey = newScaleKey;
+            }
 
             function changeLayerRole(idx, newRole) {
               layerRoles[idx] = newRole;
@@ -362,9 +380,14 @@ with col_studio:
               await Tone.start();
 
               recorderNode = new Tone.Recorder();
-              limiterNode = new Tone.Limiter(-1).connect(recorderNode).toDestination();
-              reverbNode = new Tone.Reverb({ decay: 3.0, wet: 0.25 }).connect(limiterNode);
+              
+              // Limitador Master a -2dB para evitar distorsión totalmente
+              limiterNode = new Tone.Limiter(-2).connect(recorderNode).toDestination();
+              reverbNode = new Tone.Reverb({ decay: 2.8, wet: 0.20 }).connect(limiterNode);
               await reverbNode.generate();
+
+              // Nivel master cómodo y con margen
+              Tone.Destination.volume.value = -3;
 
               synths = [];
               layers.forEach((layer, idx) => {
@@ -383,16 +406,20 @@ with col_studio:
               if (!isPlaying) {
                 parts = [];
                 
-                // Configurar loop exacto a la duración del video
                 Tone.Transport.loop = true;
                 Tone.Transport.loopStart = 0;
                 Tone.Transport.loopEnd = videoDuration;
 
                 layers.forEach((layer, idx) => {
-                  let formattedEvents = layer.events.map(e => ({ time: e.time, note: e.note }));
+                  let formattedEvents = layer.events.map(e => ({ time: e.time, norm_y: e.norm_y }));
                   
                   let part = new Tone.Part((time, value) => {
-                    let finalNote = shiftNote(value.note, layerOctaves[idx]);
+                    // Mapeo dinámico de escala en vivo
+                    let scaleArray = SCALES_DB[currentScaleKey];
+                    let noteIdx = Math.floor(value.norm_y * (scaleArray.length - 1));
+                    let baseNote = scaleArray[noteIdx];
+                    let finalNote = shiftNote(baseNote, layerOctaves[idx]);
+                    
                     synths[idx].triggerAttackRelease(finalNote, "8n", time);
                   }, formattedEvents);
                   
@@ -409,7 +436,6 @@ with col_studio:
                   vid.play();
                 }
 
-                // Sincronizar reinicio del video cada vez que el transporte de audio da la vuelta
                 loopRepeatScheduleId = Tone.Transport.scheduleRepeat((time) => {
                   if (vid) {
                     vid.currentTime = 0;
@@ -462,4 +488,4 @@ with col_studio:
             
         components.html(rendered_html, height=1000)
     else:
-        st.info("👈 Sube un video y presiona 'Escanear Subcapas y FPS del Video' para comenzar.")
+        st.info("👈 Sube un video y presiona 'Escanear Subcapas de Movimiento' para comenzar.")
