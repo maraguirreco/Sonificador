@@ -32,7 +32,7 @@ def extract_organic_motion_events(video_path, selected_scale):
         return None, "No se pudo leer el archivo de video."
     
     prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
-    height, width = prev_gray.shape  # <--- CORREGIDO AQUÍ (Tupla 2D para Grayscale)
+    height, width = prev_gray.shape
     
     frame_count, max_frames = 0, 180 # Aprox 6 segundos
     raw_events_by_layer = {}
@@ -411,6 +411,7 @@ with col_studio:
         """
 
         rendered_html = html_template.replace("__LAYERS_JSON__", layers_json).replace("__VIDEO_B64__", video_b64)
-        components.html(rendered_html, height=660)
+        # Amplitud de marco ajustada a 1000px para que NADA quede recortado
+        components.html(rendered_html, height=1000)
     else:
         st.info("👈 Sube un video y presiona 'Escanear Subcapas de Movimiento' para comenzar a asignar tus timbres.")
