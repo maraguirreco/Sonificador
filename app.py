@@ -245,7 +245,7 @@ with col_synth:
             let isPlaying = false;
             let synths = [];
             let sequences = [];
-            let layerStates = {}; // Estado de mute por capa
+            let layerStates = {{}}; // <--- ¡AQUÍ ESTABA EL ERROR (CORREGIDO)!
             let reverb;
 
             // Renderizar botones de la matriz de capas dinámicamente
