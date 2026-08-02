@@ -165,7 +165,6 @@ with col_synth:
         }
         .vol-indicator { width: 3px; height: 10px; background: #333; position: absolute; top: 4px; left: 15px; border-radius: 2px; }
 
-        /* OLED SCREEN WITH TUTORIAL OVERLAY */
         .op1-screen {
           background: #090b0e; border: 3px solid #282a30; border-radius: 8px;
           padding: 10px; color: #00ffcc; min-height: 110px; position: relative;
@@ -692,5 +691,4 @@ with col_synth:
     """
     
     rendered_html = html_template.replace("__LAYERS_JSON__", layers_json).replace("__VOICE_B64__", voice_b64).replace("__CUSTOM_PACK_B64__", custom_pack_b64)
-    iframe_key = f"op1_widget_{len(st.session_state['dynamic_layers'])}_{hash(voice_b64)}_{hash(custom_pack_b64)}"
-    components.html(rendered_html, height=880, key=iframe_key)
+    components.html(rendered_html, height=880)
